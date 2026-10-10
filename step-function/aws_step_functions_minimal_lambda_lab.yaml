@@ -1,0 +1,264 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Minimal Step Functions workflow using three Lambda functions.
+  All named resources use the supplied ResourcePrefix.
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Description: Prefix applied to all named resources created by this stack.
+    MinLength: 3
+    MaxLength: 20
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9-]*$'
+    ConstraintDescription: Must start with a letter and contain only letters, numbers, or hyphens; 3-20 characters.
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ResourcePrefix}-LambdaExecutionRole'
+      Description: !Sub 'Execution role for ${ResourcePrefix} demo Lambda functions'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+        - Key: Purpose
+          Value: StepFunctionsLambdaDemo
+
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ResourcePrefix}-StepFunctionsExecutionRole'
+      Description: !Sub 'Allows ${ResourcePrefix} state machine to invoke only its three Lambda functions'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${ResourcePrefix}-InvokeLabFunctions'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeOnlyThisStacksFunctions
+                Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt ValidateOrder.Arn
+                  - !GetAtt CalculateTotal.Arn
+                  - !GetAtt FormatResponse.Arn
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+        - Key: Purpose
+          Value: StepFunctionsLambdaDemo
+
+  ValidateOrderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ResourcePrefix}-ValidateOrder'
+      RetentionInDays: 7
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  CalculateTotalLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ResourcePrefix}-CalculateTotal'
+      RetentionInDays: 7
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  FormatResponseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ResourcePrefix}-FormatResponse'
+      RetentionInDays: 7
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  ValidateOrder:
+    Type: AWS::Lambda::Function
+    DependsOn: ValidateOrderLogGroup
+    Properties:
+      FunctionName: !Sub '${ResourcePrefix}-ValidateOrder'
+      Description: !Sub 'Validates sample order input for ${ResourcePrefix} lab'
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info("ValidateOrder received: %s", json.dumps(event))
+              order_id = event.get("orderId")
+              quantity = event.get("quantity")
+              unit_price = event.get("unitPrice")
+
+              if not order_id:
+                  raise ValueError("orderId is required")
+              if not isinstance(quantity, (int, float)) or isinstance(quantity, bool) or quantity <= 0:
+                  raise ValueError("quantity must be a positive number")
+              if not isinstance(unit_price, (int, float)) or isinstance(unit_price, bool) or unit_price < 0:
+                  raise ValueError("unitPrice must be a non-negative number")
+
+              result = {
+                  "orderId": str(order_id),
+                  "quantity": quantity,
+                  "unitPrice": unit_price,
+                  "validated": True
+              }
+              logger.info("Validation successful for orderId=%s", order_id)
+              return result
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  CalculateTotal:
+    Type: AWS::Lambda::Function
+    DependsOn: CalculateTotalLogGroup
+    Properties:
+      FunctionName: !Sub '${ResourcePrefix}-CalculateTotal'
+      Description: !Sub 'Calculates sample order total for ${ResourcePrefix} lab'
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info("CalculateTotal received: %s", json.dumps(event))
+              quantity = event["quantity"]
+              unit_price = event["unitPrice"]
+              total = round(quantity * unit_price, 2)
+
+              result = {**event, "total": total}
+              logger.info("Calculated total=%s for orderId=%s", total, event["orderId"])
+              return result
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  FormatResponse:
+    Type: AWS::Lambda::Function
+    DependsOn: FormatResponseLogGroup
+    Properties:
+      FunctionName: !Sub '${ResourcePrefix}-FormatResponse'
+      Description: !Sub 'Formats sample order response for ${ResourcePrefix} lab'
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info("FormatResponse received: %s", json.dumps(event))
+              response = {
+                  "status": "SUCCESS",
+                  "orderId": event["orderId"],
+                  "quantity": event["quantity"],
+                  "unitPrice": event["unitPrice"],
+                  "total": event["total"],
+                  "message": f"Order {event['orderId']} processed successfully."
+              }
+              logger.info("Response prepared for orderId=%s", event["orderId"])
+              return response
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  OrderWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ResourcePrefix}-OrderWorkflow'
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub
+        - |
+          {
+            "Comment": "Minimal order processing workflow with three Lambda functions",
+            "StartAt": "ValidateOrder",
+            "States": {
+              "ValidateOrder": {
+                "Type": "Task",
+                "Resource": "${ValidateOrderArn}",
+                "Next": "CalculateTotal"
+              },
+              "CalculateTotal": {
+                "Type": "Task",
+                "Resource": "${CalculateTotalArn}",
+                "Next": "FormatResponse"
+              },
+              "FormatResponse": {
+                "Type": "Task",
+                "Resource": "${FormatResponseArn}",
+                "End": true
+              }
+            }
+          }
+        - ValidateOrderArn: !GetAtt ValidateOrder.Arn
+          CalculateTotalArn: !GetAtt CalculateTotal.Arn
+          FormatResponseArn: !GetAtt FormatResponse.Arn
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+        - Key: Purpose
+          Value: StepFunctionsLambdaDemo
+
+Outputs:
+  StateMachineArn:
+    Description: ARN of the Step Functions state machine
+    Value: !Ref OrderWorkflow
+  StateMachineName:
+    Description: Name of the Step Functions state machine
+    Value: !GetAtt OrderWorkflow.Name
+  ValidateOrderFunctionArn:
+    Description: ARN of the validation Lambda function
+    Value: !GetAtt ValidateOrder.Arn
+  CalculateTotalFunctionArn:
+    Description: ARN of the calculation Lambda function
+    Value: !GetAtt CalculateTotal.Arn
+  FormatResponseFunctionArn:
+    Description: ARN of the response-formatting Lambda function
+    Value: !GetAtt FormatResponse.Arn
+  LambdaExecutionRoleArn:
+    Description: ARN of the shared Lambda execution role
+    Value: !GetAtt LambdaExecutionRole.Arn
+  StepFunctionsExecutionRoleArn:
+    Description: ARN of the Step Functions execution role
+    Value: !GetAtt StepFunctionsExecutionRole.Arn

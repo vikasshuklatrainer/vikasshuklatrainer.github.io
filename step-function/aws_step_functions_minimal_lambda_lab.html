@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWS Step Functions + 3 Lambda Functions — Minimal Hands-on Lab</title>
+<style>
+:root{--bg:#f5f7fb;--panel:#fff;--text:#172033;--muted:#5d687c;--line:#dbe2ee;--accent:#1769aa;--accent2:#0f766e;--code:#101827;--codeText:#e5edf8;--warn:#fff4d6;--warnLine:#e4ad31;--good:#e9f8ef;--bad:#fff0f0}
+[data-theme="dark"]{--bg:#101722;--panel:#172231;--text:#e8eef7;--muted:#a9b6c9;--line:#2b3b50;--accent:#78baff;--accent2:#5ed4c3;--code:#080d14;--codeText:#e5edf8;--warn:#3b3019;--warnLine:#b88a2a;--good:#173427;--bad:#3b2024}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:82px}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+header{background:linear-gradient(125deg,#12233c,#174f78 65%,#147d80);color:#fff;padding:42px 24px 34px}header .wrap{max-width:1200px;margin:auto}header h1{font-size:clamp(1.8rem,4vw,2.7rem);line-height:1.15;margin:0 0 14px}header p{max-width:850px;color:#e0edf8;margin:0;font-size:1.08rem}
+.toolbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 18px;display:flex;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 2px 10px #0000000a}.toolbar .left{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.toolbar input{min-width:220px;max-width:48vw;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}button{cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--panel);color:var(--text);font-weight:600}button:hover{border-color:var(--accent)}
+.layout{max-width:1400px;margin:0 auto;display:grid;grid-template-columns:265px minmax(0,1fr);gap:26px;padding:26px 22px}
+nav{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 95px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}nav h3{margin:0 0 10px;font-size:1rem}nav a{display:block;padding:6px 8px;text-decoration:none;color:var(--muted);border-radius:6px;font-size:.92rem}nav a:hover,nav a.active{background:var(--bg);color:var(--accent);font-weight:650}
+main{min-width:0}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;margin-bottom:22px;box-shadow:0 4px 18px #14213d08}.card h2{margin:0 0 14px;font-size:1.55rem;line-height:1.3}.card h3{margin:24px 0 8px;font-size:1.12rem}.card h4{margin:16px 0 6px}.eyebrow{color:var(--accent);font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:.78rem}.muted{color:var(--muted)}.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:.82rem;margin:3px 5px 3px 0}.callout{border-left:4px solid var(--accent);padding:12px 15px;background:var(--bg);border-radius:0 8px 8px 0;margin:14px 0}.warning{border-left-color:var(--warnLine);background:var(--warn)}.success{border-left-color:var(--accent2);background:var(--good)}.danger{border-left-color:#d44;background:var(--bad)}
+pre{position:relative;background:var(--code);color:var(--codeText);padding:18px;border-radius:10px;overflow:auto;font-size:.88rem;line-height:1.55;tab-size:2;margin:12px 0 18px}pre code{white-space:pre}pre .copy{position:absolute;right:8px;top:8px;background:#27374d;color:#fff;border-color:#53647a;font-size:.75rem;padding:5px 8px}code.inline{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:.9em}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.94rem}th,td{text-align:left;padding:10px 12px;border:1px solid var(--line);vertical-align:top}th{background:var(--bg)}ul,ol{padding-left:24px}.steps li{margin:8px 0}.diagram{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:16px;overflow:auto}.flow{display:flex;align-items:center;justify-content:center;gap:10px;min-width:650px}.node{min-width:140px;text-align:center;padding:14px 12px;border:2px solid var(--accent);background:var(--panel);border-radius:10px;font-weight:700}.node small{display:block;color:var(--muted);font-weight:400}.arrow{font-size:1.5rem;color:var(--accent);font-weight:800}.check{list-style:none;padding:0}.check li{padding-left:30px;position:relative;margin:9px 0}.check li:before{content:"☐";position:absolute;left:0;font-size:1.1rem;color:var(--accent)}.tag{font-size:.75rem;border-radius:5px;padding:3px 6px;background:var(--good);color:var(--accent2);font-weight:700}
+footer{max-width:1200px;margin:0 auto;padding:10px 22px 40px;color:var(--muted);font-size:.9rem}.hidden{display:none!important}
+@media(max-width:900px){.layout{grid-template-columns:1fr;padding:14px}nav{position:relative;top:auto;max-height:none}nav .navlinks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:18px}.toolbar input{min-width:140px}}
+@media(max-width:520px){header{padding:30px 18px}.toolbar{align-items:flex-start}.toolbar input{max-width:54vw}.navlinks{grid-template-columns:1fr!important}table{font-size:.84rem}th,td{padding:7px}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+<div class="eyebrow" style="color:#9de4f0">AWS SERVERLESS • CLASSROOM LAB</div>
+<h1>Build the Smallest Practical Workflow with Step Functions + 3 Lambda Functions</h1>
+<p>A guided, low-cost lab that validates a sample order, calculates a total, and formats a result. Create the IAM roles and permissions yourself, run the workflow, inspect execution history and logs, then clean up every resource.</p>
+<div style="margin-top:18px"><span class="pill">30–45 minutes</span><span class="pill">No VPC</span><span class="pill">No database / S3 / API Gateway</span><span class="pill">Console-first</span><span class="pill">Python 3.x</span></div>
+</div></header>
+<div class="toolbar"><div class="left"><strong>Lab guide</strong><input id="search" type="search" placeholder="Search this documentation…" aria-label="Search documentation"></div><button id="themeBtn" type="button">🌙 Dark mode</button></div>
+<div class="layout">
+<nav aria-label="Table of contents"><h3>Contents</h3><div class="navlinks" id="navlinks">
+<a href="#overview">1. Overview</a><a href="#architecture">2. Architecture</a><a href="#prerequisites">3. Prerequisites</a><a href="#iam">4. IAM roles & policies</a><a href="#lambda1">5. Lambda 1: Validate</a><a href="#lambda2">6. Lambda 2: Calculate</a><a href="#lambda3">7. Lambda 3: Format</a><a href="#workflow">8. State machine</a><a href="#test">9. Run & validate</a><a href="#failure">10. Failure test</a><a href="#logs">11. Logs & troubleshooting</a><a href="#cost">12. Cost notes</a><a href="#cleanup">13. Cleanup</a><a href="#challenge">14. Exercises</a><a href="#references">15. AWS references</a>
+</div></nav>
+<main>
+<section class="card searchable" id="overview"><div class="eyebrow">01 • Goal</div><h2>What you will build</h2>
+<p>The workflow processes a small order using three independent Lambda functions. Step Functions passes each function's output to the next state, making the execution visible as a graph.</p>
+<table><thead><tr><th>Resource</th><th>Count</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>AWS Step Functions state machine</td><td>1</td><td>Orchestrates the three steps and tracks execution status.</td></tr>
+<tr><td>AWS Lambda functions</td><td>3</td><td>Validate input, calculate amount, and prepare a response.</td></tr>
+<tr><td>Lambda execution IAM role</td><td>1 shared role</td><td>Allows all three functions to write logs to CloudWatch Logs.</td></tr>
+<tr><td>Step Functions execution IAM role</td><td>1</td><td>Allows the state machine to invoke only these three Lambda functions.</td></tr>
+<tr><td>CloudWatch log groups</td><td>Created as needed</td><td>Capture Lambda function logs; Step Functions execution history is available in the console.</td></tr>
+</tbody></table>
+<div class="callout success"><strong>Minimal design decision:</strong> use one shared Lambda execution role for the three demo functions. In production, separate roles per function can provide tighter isolation. No Lambda function needs permission to call another function, and no Lambda resource-based policy is needed for this same-account pattern when the Step Functions role has <code class="inline">lambda:InvokeFunction</code> on the function ARNs.</div>
+<div class="callout warning"><strong>Cost guardrail:</strong> this lab uses no always-on compute, VPC, NAT Gateway, database, or load balancer. Lambda and Step Functions usage is request-based, but AWS charges can still apply depending on account, Region, free-tier eligibility, logging, and total usage. Delete the resources after the lab.</div>
+</section>
+<section class="card searchable" id="architecture"><div class="eyebrow">02 • Design</div><h2>Architecture and data flow</h2>
+<div class="diagram"><div class="flow">
+<div class="node">Execution input<small>orderId, quantity, unitPrice</small></div><div class="arrow">→</div>
+<div class="node">ValidateOrder<small>Lambda 1</small></div><div class="arrow">→</div>
+<div class="node">CalculateTotal<small>Lambda 2</small></div><div class="arrow">→</div>
+<div class="node">FormatResponse<small>Lambda 3</small></div><div class="arrow">→</div>
+<div class="node">Execution output<small>order summary</small></div>
+</div></div>
+<h3>Permissions flow</h3>
+<ul>
+<li><strong>Step Functions service principal</strong> (<code class="inline">states.amazonaws.com</code>) assumes the state machine execution role.</li>
+<li>The <strong>state machine execution role</strong> has <code class="inline">lambda:InvokeFunction</code> permission limited to the three function ARNs.</li>
+<li><strong>Lambda service principal</strong> (<code class="inline">lambda.amazonaws.com</code>) assumes the shared Lambda execution role.</li>
+<li>The <strong>Lambda execution role</strong> has CloudWatch Logs permissions via <code class="inline">AWSLambdaBasicExecutionRole</code>. The functions do not access any other AWS service.</li>
+</ul>
+<h3>Example input</h3><pre><code>{
+  "orderId": "ORD-1001",
+  "quantity": 3,
+  "unitPrice": 12.5
+}</code></pre>
+<h3>Expected final output</h3><pre><code>{
+  "status": "SUCCESS",
+  "orderId": "ORD-1001",
+  "quantity": 3,
+  "unitPrice": 12.5,
+  "total": 37.5,
+  "message": "Order ORD-1001 processed successfully."
+}</code></pre>
+</section>
+<section class="card searchable" id="prerequisites"><div class="eyebrow">03 • Preparation</div><h2>Prerequisites</h2>
+<ul class="check"><li>AWS account access with permission to create Lambda functions, IAM roles/policies, and Step Functions state machines.</li><li>Choose one AWS Region and create every resource in that same Region.</li><li>Use a lab-specific naming prefix such as <code class="inline">sfn-mini-lab</code> so resources are easy to identify and remove.</li><li>Do not use production data or credentials; this lab processes only a sample JSON object.</li></ul>
+<div class="callout warning"><strong>IAM setup permissions:</strong> the identity you use in the console needs permission to create/attach IAM roles and policies and create the Lambda and Step Functions resources. An administrator may need to provision these permissions in a controlled training account. Do not grant broad administrator permissions to the Lambda functions themselves.</div>
+<h3>Resource names used in this guide</h3>
+<div class="callout success"><strong>Naming convention:</strong> choose one prefix, for example <code class="inline">abhi-sfn-demo</code>, and replace <code class="inline">&lt;ResourcePrefix&gt;</code> with that value in every manual resource name, IAM policy ARN, log group name, and state machine ARN. This is the same naming convention used by the CloudFormation template's <code class="inline">ResourcePrefix</code> parameter.</div>
+<table><tr><th>Resource</th><th>Name pattern</th></tr>
+<tr><td>Lambda function 1</td><td><code class="inline">&lt;ResourcePrefix&gt;-ValidateOrder</code></td></tr>
+<tr><td>Lambda function 2</td><td><code class="inline">&lt;ResourcePrefix&gt;-CalculateTotal</code></td></tr>
+<tr><td>Lambda function 3</td><td><code class="inline">&lt;ResourcePrefix&gt;-FormatResponse</code></td></tr>
+<tr><td>Shared Lambda role</td><td><code class="inline">&lt;ResourcePrefix&gt;-LambdaExecutionRole</code></td></tr>
+<tr><td>Step Functions role</td><td><code class="inline">&lt;ResourcePrefix&gt;-StepFunctionsExecutionRole</code></td></tr>
+<tr><td>Inline IAM policy</td><td><code class="inline">&lt;ResourcePrefix&gt;-InvokeLabFunctions</code></td></tr>
+<tr><td>State machine</td><td><code class="inline">&lt;ResourcePrefix&gt;-OrderWorkflow</code></td></tr>
+<tr><td>Lambda log groups</td><td><code class="inline">/aws/lambda/&lt;ResourcePrefix&gt;-ValidateOrder</code>, and corresponding CalculateTotal / FormatResponse names</td></tr></table>
+</section>
+<section class="card searchable" id="iam"><div class="eyebrow">04 • Security</div><h2>Create the IAM roles and policies</h2>
+<p>Create the roles before the functions so you can explicitly select the correct execution role. There are two roles because the workflow orchestrator and the function code are separate security principals.</p>
+<h3>4.1 Create the Lambda execution role</h3>
+<ol class="steps"><li>Open the <strong>IAM console → Roles → Create role</strong>.</li><li>For trusted entity type, choose <strong>AWS service</strong>; choose <strong>Lambda</strong> as the use case.</li><li>Attach the AWS managed policy <code class="inline">AWSLambdaBasicExecutionRole</code>. This grants the basic permissions needed to create log streams and write function logs to CloudWatch Logs.</li><li>Set role name to <code class="inline">&lt;ResourcePrefix&gt;-LambdaExecutionRole</code>, review, and create the role.</li><li>Open the role and verify its trust relationship trusts <code class="inline">lambda.amazonaws.com</code>.</li></ol>
+<p><strong>Trust policy (reference):</strong> the Lambda console creates this when you choose Lambda as the trusted service.</p>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "lambda.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}</code></pre>
+<p><strong>Permissions attached:</strong> AWS managed policy <code class="inline">arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole</code>. It provides CloudWatch Logs write permissions. Do not attach permissions for S3, databases, or Step Functions because these functions do not need them.</p>
+<h3>4.2 Create the Step Functions execution role</h3><p>Use the same <code class="inline">ResourcePrefix</code> value for all three Lambda function names, all three ARNs in the Step Functions role policy, and the state machine. The manual steps and CloudFormation template now use the same naming pattern.</p>
+<ol class="steps"><li>In <strong>IAM → Roles → Create role</strong>, select <strong>AWS service</strong> and choose <strong>Step Functions</strong>.</li><li>Proceed through permissions without attaching broad policies. Create role named <code class="inline">&lt;ResourcePrefix&gt;-StepFunctionsExecutionRole</code>.</li><li>Open the role and add an <strong>inline policy</strong> with the JSON below. Replace <code class="inline">REGION</code> and <code class="inline">ACCOUNT_ID</code> with your actual Region and 12-digit AWS account ID, and keep the three function names exact.</li><li>Name the policy <code class="inline">&lt;ResourcePrefix&gt;-InvokeLabFunctions</code> and save.</li></ol>
+<p><strong>Trust policy:</strong> when creating a Step Functions role from the console, AWS creates a trust relationship for Step Functions. Verify that it permits the Step Functions service principal, typically <code class="inline">states.amazonaws.com</code>.</p>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "states.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}</code></pre>
+<p><strong>Inline permissions policy:</strong></p>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeOnlyThisLabFunctions",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": [
+        "arn:aws:lambda:REGION:ACCOUNT_ID:function:&lt;ResourcePrefix&gt;-ValidateOrder",
+        "arn:aws:lambda:REGION:ACCOUNT_ID:function:&lt;ResourcePrefix&gt;-CalculateTotal",
+        "arn:aws:lambda:REGION:ACCOUNT_ID:function:&lt;ResourcePrefix&gt;-FormatResponse"
+      ]
+    }
+  ]
+}</code></pre>
+<div class="callout warning"><strong>Important:</strong> replace the placeholders before saving. Example ARN shape: <code class="inline">arn:aws:lambda:ap-south-1:123456789012:function:&lt;ResourcePrefix&gt;-ValidateOrder</code>. Do not paste the example account ID into your own policy. If you later invoke a qualified version or alias ARN, update the policy to match that qualified ARN.</div>
+<h3>4.3 Why no extra permissions?</h3>
+<table><tr><th>Permission</th><th>Required?</th><th>Reason</th></tr><tr><td><code class="inline">lambda:InvokeFunction</code> on the three functions</td><td>Yes — Step Functions role</td><td>Allows the workflow to invoke each task.</td></tr><tr><td>CloudWatch Logs write permissions</td><td>Yes — Lambda role</td><td>Allows functions to write their application logs.</td></tr><tr><td><code class="inline">states:StartExecution</code> on Lambda role</td><td>No</td><td>No function starts a workflow.</td></tr><tr><td><code class="inline">lambda:InvokeFunction</code> on Lambda role</td><td>No</td><td>Functions do not invoke each other.</td></tr><tr><td>S3, DynamoDB, RDS, VPC permissions</td><td>No</td><td>Not used in this lab.</td></tr></table>
+</section>
+<section class="card searchable" id="lambda1"><div class="eyebrow">05 • Function 1</div><h2>Create Lambda 1 — ValidateOrder</h2>
+<ol class="steps"><li>Open <strong>Lambda → Functions → Create function → Author from scratch</strong>.</li><li>Function name: <code class="inline">&lt;ResourcePrefix&gt;-ValidateOrder</code>.</li><li>Runtime: select a currently supported Python 3.x runtime available in your Region.</li><li>Under permissions, expand the default execution role options and select <strong>Use an existing role</strong>; choose <code class="inline">&lt;ResourcePrefix&gt;-LambdaExecutionRole</code>.</li><li>Create the function. In the Code tab, replace the sample code with the code below and choose <strong>Deploy</strong>.</li></ol>
+<pre><button class="copy" type="button">Copy</button><code>import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    logger.info("ValidateOrder received: %s", json.dumps(event))
+
+    order_id = event.get("orderId")
+    quantity = event.get("quantity")
+    unit_price = event.get("unitPrice")
+
+    if not order_id:
+        raise ValueError("orderId is required")
+    if not isinstance(quantity, (int, float)) or isinstance(quantity, bool) or quantity &lt;= 0:
+        raise ValueError("quantity must be a positive number")
+    if not isinstance(unit_price, (int, float)) or isinstance(unit_price, bool) or unit_price &lt; 0:
+        raise ValueError("unitPrice must be a non-negative number")
+
+    result = {
+        "orderId": str(order_id),
+        "quantity": quantity,
+        "unitPrice": unit_price,
+        "validated": True
+    }
+    logger.info("Validation successful for orderId=%s", order_id)
+    return result</code></pre>
+<h3>Test the function directly</h3><p>Create a test event named <code class="inline">ValidOrder</code> with this JSON, then choose Test.</p>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "orderId": "ORD-1001",
+  "quantity": 3,
+  "unitPrice": 12.5
+}</code></pre>
+<p>Expected result includes <code class="inline">"validated": true</code>, <code class="inline">"quantity": 3</code>, and <code class="inline">"unitPrice": 12.5</code>.</p>
+</section>
+<section class="card searchable" id="lambda2"><div class="eyebrow">06 • Function 2</div><h2>Create Lambda 2 — CalculateTotal</h2>
+<ol class="steps"><li>Create another function named <code class="inline">&lt;ResourcePrefix&gt;-CalculateTotal</code>, using the same Python runtime and the existing role <code class="inline">&lt;ResourcePrefix&gt;-LambdaExecutionRole</code>.</li><li>Replace the code, choose <strong>Deploy</strong>, and test with the same valid order input.</li></ol>
+<pre><button class="copy" type="button">Copy</button><code>import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    logger.info("CalculateTotal received: %s", json.dumps(event))
+
+    quantity = event["quantity"]
+    unit_price = event["unitPrice"]
+    total = round(quantity * unit_price, 2)
+
+    result = {
+        **event,
+        "total": total
+    }
+    logger.info("Calculated total=%s for orderId=%s", total, event["orderId"])
+    return result</code></pre>
+<p>Expected result includes <code class="inline">"total": 37.5</code>. This function intentionally relies on Lambda 1 to validate the required fields; the workflow is a simple teaching example, not a production order system.</p>
+</section>
+<section class="card searchable" id="lambda3"><div class="eyebrow">07 • Function 3</div><h2>Create Lambda 3 — FormatResponse</h2>
+<ol class="steps"><li>Create a third function named <code class="inline">&lt;ResourcePrefix&gt;-FormatResponse</code>, with the same runtime and existing shared role.</li><li>Replace the code and choose <strong>Deploy</strong>.</li></ol>
+<pre><button class="copy" type="button">Copy</button><code>import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    logger.info("FormatResponse received: %s", json.dumps(event))
+
+    response = {
+        "status": "SUCCESS",
+        "orderId": event["orderId"],
+        "quantity": event["quantity"],
+        "unitPrice": event["unitPrice"],
+        "total": event["total"],
+        "message": f"Order {event['orderId']} processed successfully."
+    }
+    logger.info("Response prepared for orderId=%s", event["orderId"])
+    return response</code></pre>
+<p>All three functions should now be deployed. Confirm their function names and execution role under each function's <strong>Configuration → Permissions</strong> page.</p>
+</section>
+<section class="card searchable" id="workflow"><div class="eyebrow">08 • Orchestration</div><h2>Create the Step Functions state machine</h2>
+<ol class="steps"><li>Open <strong>Step Functions → State machines → Create state machine</strong>.</li><li>Choose <strong>Write your workflow in code</strong> / create from blank (console wording may vary), and select <strong>Standard</strong> workflow type for a clear execution-history demonstration.</li><li>Name it <code class="inline">&lt;ResourcePrefix&gt;-OrderWorkflow</code>.</li><li>Paste the Amazon States Language definition below. Replace the three Lambda ARNs with the exact ARNs shown on your Lambda function pages.</li><li>For execution role, choose <strong>Choose an existing role</strong> and select <code class="inline">&lt;ResourcePrefix&gt;-StepFunctionsExecutionRole</code>.</li><li>Validate the definition, create the state machine, and resolve any policy/ARN validation errors before running it.</li></ol>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "Comment": "Minimal order processing workflow with three Lambda functions",
+  "StartAt": "ValidateOrder",
+  "States": {
+    "ValidateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:&lt;ResourcePrefix&gt;-ValidateOrder",
+      "Next": "CalculateTotal"
+    },
+    "CalculateTotal": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:&lt;ResourcePrefix&gt;-CalculateTotal",
+      "Next": "FormatResponse"
+    },
+    "FormatResponse": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:&lt;ResourcePrefix&gt;-FormatResponse",
+      "End": true
+    }
+  }
+}</code></pre>
+<div class="callout"><strong>Why this integration style?</strong> This definition uses the direct Lambda function ARN as a Task resource. It keeps the workflow definition short and passes the Lambda return value to the next state. Step Functions also supports the optimized <code class="inline">arn:aws:states:::lambda:invoke</code> integration, which exposes the Lambda response envelope and offers additional integration features. For this minimal lab, direct invocation keeps the data flow easy to inspect.</div>
+<h3>Important ARN replacement</h3><p>For example, if your Region is <code class="inline">ap-south-1</code> and your account ID is <code class="inline">123456789012</code>, the first ARN would look like this:</p>
+<pre><code>arn:aws:lambda:ap-south-1:123456789012:function:&lt;ResourcePrefix&gt;-ValidateOrder</code></pre>
+<p>Use your real account ID and Region. The state machine and Lambda functions should be in the same account and Region for this lab.</p>
+</section>
+<section class="card searchable" id="test"><div class="eyebrow">09 • Validation</div><h2>Run the workflow and inspect the output</h2>
+<ol class="steps"><li>In Step Functions, open <code class="inline">&lt;ResourcePrefix&gt;-OrderWorkflow</code> and choose <strong>Start execution</strong>.</li><li>Use execution input:</li></ol>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "orderId": "ORD-1001",
+  "quantity": 3,
+  "unitPrice": 12.5
+}</code></pre>
+<ol class="steps" start="3"><li>Choose <strong>Start execution</strong>. Wait for the status to become <strong>Succeeded</strong>.</li><li>In the execution graph, select each state and inspect its input/output. Verify that Lambda 1 adds <code class="inline">validated</code>, Lambda 2 adds <code class="inline">total</code>, and Lambda 3 returns the final response.</li><li>Check the execution output. The total should be <code class="inline">37.5</code>.</li></ol>
+<h3>Validation checklist</h3><ul class="check"><li>All three states show success in the execution graph.</li><li>The first state's output contains <code class="inline">"validated": true</code>.</li><li>The second state's output contains <code class="inline">"total": 37.5</code>.</li><li>The final output contains <code class="inline">"status": "SUCCESS"</code> and the expected message.</li><li>The state machine execution role contains only the three Lambda invoke permissions required for this workflow.</li></ul>
+</section>
+<section class="card searchable" id="failure"><div class="eyebrow">10 • Negative test</div><h2>Demonstrate a failed execution</h2>
+<p>This test demonstrates that an unhandled exception in a Lambda Task causes the Step Functions state to fail.</p>
+<ol class="steps"><li>Start another execution with the following invalid input (quantity is missing):</li></ol>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "orderId": "ORD-1002",
+  "unitPrice": 12.5
+}</code></pre>
+<ol class="steps" start="2"><li>The <code class="inline">ValidateOrder</code> function should raise <code class="inline">ValueError</code> because quantity is missing/invalid.</li><li>The execution should fail at <code class="inline">ValidateOrder</code>; the later two Lambda functions should not run.</li><li>Select the failed state in the execution graph and inspect the error name and cause.</li><li>Open the Lambda function's Monitor tab or CloudWatch Logs and find the invocation's exception and log messages.</li></ol>
+<div class="callout warning"><strong>Expected for this first version:</strong> the workflow fails rather than catching the exception. A later exercise can add <code class="inline">Retry</code> and <code class="inline">Catch</code> states to teach retries and controlled error handling. Do not add retries to validation errors in production without a reason; invalid input usually will not become valid on retry.</div>
+</section>
+<section class="card searchable" id="logs"><div class="eyebrow">11 • Observability</div><h2>Where to see execution history and logs</h2>
+<h3>Step Functions execution details</h3><ol class="steps"><li>Open <strong>Step Functions → State machines → &lt;ResourcePrefix&gt;-OrderWorkflow → Executions</strong>.</li><li>Choose the execution ID. Use the graph and event history to view state transitions, input/output, duration, and failure details.</li></ol>
+<h3>Lambda logs in CloudWatch</h3><ol class="steps"><li>Open <strong>CloudWatch → Logs → Log groups</strong>.</li><li>Find <code class="inline">/aws/lambda/&lt;ResourcePrefix&gt;-ValidateOrder</code>, <code class="inline">/aws/lambda/&lt;ResourcePrefix&gt;-CalculateTotal</code>, or <code class="inline">/aws/lambda/&lt;ResourcePrefix&gt;-FormatResponse</code>.</li><li>Open the newest log stream and inspect the custom <code class="inline">logger.info</code> messages. For the negative test, inspect the exception/traceback in the ValidateOrder log stream.</li></ol>
+<div class="callout">Lambda log groups may appear after the first invocation. This lab does not enable Step Functions CloudWatch Logs delivery; execution details are available in the Step Functions console. Enabling Step Functions logging is optional and would require additional permissions and incur standard CloudWatch Logs charges.</div>
+<h3>Troubleshooting</h3><table><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+<tr><td><code class="inline">AccessDenied</code> invoking Lambda</td><td>State machine role is missing permission or the ARN doesn't match the policy.</td><td>Check the role's inline policy, Region/account ID, function names, and qualifiers.</td></tr>
+<tr><td>Workflow definition validation error</td><td>Malformed JSON or placeholder ARN still present.</td><td>Validate JSON and replace all <code class="inline">REGION</code>/<code class="inline">ACCOUNT_ID</code> values.</td></tr>
+<tr><td>Lambda fails before writing logs</td><td>Wrong execution role or missing log permissions.</td><td>Verify the function uses <code class="inline">&lt;ResourcePrefix&gt;-LambdaExecutionRole</code> and that <code class="inline">AWSLambdaBasicExecutionRole</code> is attached.</td></tr>
+<tr><td><code class="inline">KeyError</code> in CalculateTotal/FormatResponse</td><td>Function was tested with incomplete data, or the preceding step did not return the expected fields.</td><td>Run the full workflow with the provided valid input; check each state output.</td></tr>
+<tr><td>No logs visible yet</td><td>Wrong log group/Region or function has not been invoked.</td><td>Confirm Region and invoke the function/workflow; refresh CloudWatch Logs.</td></tr>
+<tr><td>Role not selectable</td><td>Role was created in another account or missing required trust relationship.</td><td>Confirm account and trust policy for the relevant AWS service.</td></tr></table>
+</section>
+
+<section class="card searchable" id="cloudformation"><div class="eyebrow">09 • Infrastructure as Code</div><h2>Deploy the entire lab with CloudFormation</h2>
+<p>The standalone CloudFormation template creates the same three-Lambda workflow, the two IAM roles and their least-privilege permissions, explicit CloudWatch Logs groups with seven-day retention, and the Step Functions state machine. Lambda code is embedded in the template, so no ZIP upload or S3 bucket is needed.</p>
+<div class="callout success"><strong>ResourcePrefix parameter:</strong> during stack creation, CloudFormation asks for <code class="inline">ResourcePrefix</code>. That prefix is applied to all named resources created by this stack, including the Lambda functions, IAM role names, state machine name, and Lambda log group names. Resources are also tagged with the prefix where supported.</div>
+<h3>9.1 Download the template</h3>
+<p><a href="aws_step_functions_minimal_lambda_lab.yaml" download><strong>Download the CloudFormation YAML template</strong></a>. Keep the YAML file and this HTML guide in the same folder if you want the download link to work locally.</p>
+<h3>9.2 Deploy through the AWS Console</h3>
+<ol class="steps">
+<li>Open <strong>AWS CloudFormation → Stacks → Create stack → With new resources (standard)</strong>.</li>
+<li>Choose <strong>Upload a template file</strong> and upload <code class="inline">aws_step_functions_minimal_lambda_lab.yaml</code>.</li>
+<li>Choose a stack name, for example <code class="inline">sfn-mini-demo-stack</code>.</li>
+<li>On the Parameters page, enter a <code class="inline">ResourcePrefix</code>, for example <code class="inline">abhi-sfn-demo</code>. It must start with a letter and contain only letters, numbers, or hyphens; length is 3–20 characters. Choose a prefix that is unique enough to avoid naming collisions in your account.</li>
+<li>Continue through the remaining pages. Acknowledge IAM resource creation if prompted, review the template, and submit.</li>
+<li>Wait until the stack status is <code class="inline">CREATE_COMPLETE</code>. If creation fails, open the stack's Events tab and inspect the first failed resource.</li>
+<li>Open the stack's <strong>Outputs</strong> tab and copy the <code class="inline">StateMachineArn</code> or open the state machine from Step Functions.</li>
+</ol>
+<h3>9.3 Run the deployed workflow</h3>
+<p>In Step Functions, open the state machine named <code class="inline">&lt;ResourcePrefix&gt;-OrderWorkflow</code> and choose <strong>Start execution</strong> with this input:</p>
+<pre><button class="copy" type="button">Copy</button><code>{
+  "orderId": "ORD-1001",
+  "quantity": 3,
+  "unitPrice": 12.5
+}</code></pre>
+<p>Expected output includes <code class="inline">"total": 37.5</code> and <code class="inline">"status": "SUCCESS"</code>. To test failure handling, start another execution with quantity missing or set to zero; the ValidateOrder task should fail.</p>
+<h3>9.4 Resource names created</h3>
+<table><tr><th>Resource</th><th>Name pattern</th></tr>
+<tr><td>Lambda function 1</td><td><code class="inline">&lt;ResourcePrefix&gt;-ValidateOrder</code></td></tr>
+<tr><td>Lambda function 2</td><td><code class="inline">&lt;ResourcePrefix&gt;-CalculateTotal</code></td></tr>
+<tr><td>Lambda function 3</td><td><code class="inline">&lt;ResourcePrefix&gt;-FormatResponse</code></td></tr>
+<tr><td>Lambda execution role</td><td><code class="inline">&lt;ResourcePrefix&gt;-LambdaExecutionRole</code></td></tr>
+<tr><td>Step Functions execution role</td><td><code class="inline">&lt;ResourcePrefix&gt;-StepFunctionsExecutionRole</code></td></tr>
+<tr><td>State machine</td><td><code class="inline">&lt;ResourcePrefix&gt;-OrderWorkflow</code></td></tr>
+<tr><td>Lambda log groups</td><td><code class="inline">/aws/lambda/&lt;ResourcePrefix&gt;-ValidateOrder</code>, and corresponding CalculateTotal / FormatResponse names</td></tr></table>
+<h3>9.5 What the template provisions</h3>
+<ul>
+<li>One shared Lambda execution role trusted by <code class="inline">lambda.amazonaws.com</code>, with <code class="inline">AWSLambdaBasicExecutionRole</code> for CloudWatch Logs.</li>
+<li>One Step Functions role trusted by <code class="inline">states.amazonaws.com</code>, with <code class="inline">lambda:InvokeFunction</code> limited to the three functions in this stack.</li>
+<li>Three Python Lambda functions (128 MB memory, 10-second timeout), with code included inline.</li>
+<li>Three explicit CloudWatch log groups with seven-day retention, to avoid indefinite retention for this classroom demo.</li>
+<li>One Standard Step Functions state machine that calls the three functions in sequence.</li>
+</ul>
+<div class="callout warning"><strong>IAM note:</strong> CloudFormation must be run by a deployment identity that is permitted to create IAM roles and attach the referenced managed policy. This template intentionally does not grant the Lambda functions permissions to invoke one another or start Step Functions executions.</div>
+<h3>9.6 Full CloudFormation template</h3>
+<p>The complete YAML is also available as the downloadable file above. Expand this section to inspect or copy the template directly from this document.</p>
+<details><summary><strong>Show complete CloudFormation YAML</strong></summary>
+<pre><button class="copy" type="button">Copy</button><code>AWSTemplateFormatVersion: &#x27;2010-09-09&#x27;
+Description: &gt;
+  Minimal Step Functions workflow using three Lambda functions.
+  All named resources use the supplied ResourcePrefix.
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Description: Prefix applied to all named resources created by this stack.
+    MinLength: 3
+    MaxLength: 20
+    AllowedPattern: &#x27;^[a-zA-Z][a-zA-Z0-9-]*$&#x27;
+    ConstraintDescription: Must start with a letter and contain only letters, numbers, or hyphens; 3-20 characters.
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ResourcePrefix}-LambdaExecutionRole&#x27;
+      Description: !Sub &#x27;Execution role for ${ResourcePrefix} demo Lambda functions&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+        - Key: Purpose
+          Value: StepFunctionsLambdaDemo
+
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ResourcePrefix}-StepFunctionsExecutionRole&#x27;
+      Description: !Sub &#x27;Allows ${ResourcePrefix} state machine to invoke only its three Lambda functions&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub &#x27;${ResourcePrefix}-InvokeLabFunctions&#x27;
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Sid: InvokeOnlyThisStacksFunctions
+                Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt ValidateOrder.Arn
+                  - !GetAtt CalculateTotal.Arn
+                  - !GetAtt FormatResponse.Arn
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+        - Key: Purpose
+          Value: StepFunctionsLambdaDemo
+
+  ValidateOrderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub &#x27;/aws/lambda/${ResourcePrefix}-ValidateOrder&#x27;
+      RetentionInDays: 7
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  CalculateTotalLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub &#x27;/aws/lambda/${ResourcePrefix}-CalculateTotal&#x27;
+      RetentionInDays: 7
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  FormatResponseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub &#x27;/aws/lambda/${ResourcePrefix}-FormatResponse&#x27;
+      RetentionInDays: 7
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  ValidateOrder:
+    Type: AWS::Lambda::Function
+    DependsOn: ValidateOrderLogGroup
+    Properties:
+      FunctionName: !Sub &#x27;${ResourcePrefix}-ValidateOrder&#x27;
+      Description: !Sub &#x27;Validates sample order input for ${ResourcePrefix} lab&#x27;
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info(&quot;ValidateOrder received: %s&quot;, json.dumps(event))
+              order_id = event.get(&quot;orderId&quot;)
+              quantity = event.get(&quot;quantity&quot;)
+              unit_price = event.get(&quot;unitPrice&quot;)
+
+              if not order_id:
+                  raise ValueError(&quot;orderId is required&quot;)
+              if not isinstance(quantity, (int, float)) or isinstance(quantity, bool) or quantity &lt;= 0:
+                  raise ValueError(&quot;quantity must be a positive number&quot;)
+              if not isinstance(unit_price, (int, float)) or isinstance(unit_price, bool) or unit_price &lt; 0:
+                  raise ValueError(&quot;unitPrice must be a non-negative number&quot;)
+
+              result = {
+                  &quot;orderId&quot;: str(order_id),
+                  &quot;quantity&quot;: quantity,
+                  &quot;unitPrice&quot;: unit_price,
+                  &quot;validated&quot;: True
+              }
+              logger.info(&quot;Validation successful for orderId=%s&quot;, order_id)
+              return result
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  CalculateTotal:
+    Type: AWS::Lambda::Function
+    DependsOn: CalculateTotalLogGroup
+    Properties:
+      FunctionName: !Sub &#x27;${ResourcePrefix}-CalculateTotal&#x27;
+      Description: !Sub &#x27;Calculates sample order total for ${ResourcePrefix} lab&#x27;
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info(&quot;CalculateTotal received: %s&quot;, json.dumps(event))
+              quantity = event[&quot;quantity&quot;]
+              unit_price = event[&quot;unitPrice&quot;]
+              total = round(quantity * unit_price, 2)
+
+              result = {**event, &quot;total&quot;: total}
+              logger.info(&quot;Calculated total=%s for orderId=%s&quot;, total, event[&quot;orderId&quot;])
+              return result
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  FormatResponse:
+    Type: AWS::Lambda::Function
+    DependsOn: FormatResponseLogGroup
+    Properties:
+      FunctionName: !Sub &#x27;${ResourcePrefix}-FormatResponse&#x27;
+      Description: !Sub &#x27;Formats sample order response for ${ResourcePrefix} lab&#x27;
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info(&quot;FormatResponse received: %s&quot;, json.dumps(event))
+              response = {
+                  &quot;status&quot;: &quot;SUCCESS&quot;,
+                  &quot;orderId&quot;: event[&quot;orderId&quot;],
+                  &quot;quantity&quot;: event[&quot;quantity&quot;],
+                  &quot;unitPrice&quot;: event[&quot;unitPrice&quot;],
+                  &quot;total&quot;: event[&quot;total&quot;],
+                  &quot;message&quot;: f&quot;Order {event[&#x27;orderId&#x27;]} processed successfully.&quot;
+              }
+              logger.info(&quot;Response prepared for orderId=%s&quot;, event[&quot;orderId&quot;])
+              return response
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+
+  OrderWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub &#x27;${ResourcePrefix}-OrderWorkflow&#x27;
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub
+        - |
+          {
+            &quot;Comment&quot;: &quot;Minimal order processing workflow with three Lambda functions&quot;,
+            &quot;StartAt&quot;: &quot;ValidateOrder&quot;,
+            &quot;States&quot;: {
+              &quot;ValidateOrder&quot;: {
+                &quot;Type&quot;: &quot;Task&quot;,
+                &quot;Resource&quot;: &quot;${ValidateOrderArn}&quot;,
+                &quot;Next&quot;: &quot;CalculateTotal&quot;
+              },
+              &quot;CalculateTotal&quot;: {
+                &quot;Type&quot;: &quot;Task&quot;,
+                &quot;Resource&quot;: &quot;${CalculateTotalArn}&quot;,
+                &quot;Next&quot;: &quot;FormatResponse&quot;
+              },
+              &quot;FormatResponse&quot;: {
+                &quot;Type&quot;: &quot;Task&quot;,
+                &quot;Resource&quot;: &quot;${FormatResponseArn}&quot;,
+                &quot;End&quot;: true
+              }
+            }
+          }
+        - ValidateOrderArn: !GetAtt ValidateOrder.Arn
+          CalculateTotalArn: !GetAtt CalculateTotal.Arn
+          FormatResponseArn: !GetAtt FormatResponse.Arn
+      Tags:
+        - Key: ResourcePrefix
+          Value: !Ref ResourcePrefix
+        - Key: Purpose
+          Value: StepFunctionsLambdaDemo
+
+Outputs:
+  StateMachineArn:
+    Description: ARN of the Step Functions state machine
+    Value: !Ref OrderWorkflow
+  StateMachineName:
+    Description: Name of the Step Functions state machine
+    Value: !GetAtt OrderWorkflow.Name
+  ValidateOrderFunctionArn:
+    Description: ARN of the validation Lambda function
+    Value: !GetAtt ValidateOrder.Arn
+  CalculateTotalFunctionArn:
+    Description: ARN of the calculation Lambda function
+    Value: !GetAtt CalculateTotal.Arn
+  FormatResponseFunctionArn:
+    Description: ARN of the response-formatting Lambda function
+    Value: !GetAtt FormatResponse.Arn
+  LambdaExecutionRoleArn:
+    Description: ARN of the shared Lambda execution role
+    Value: !GetAtt LambdaExecutionRole.Arn
+  StepFunctionsExecutionRoleArn:
+    Description: ARN of the Step Functions execution role
+    Value: !GetAtt StepFunctionsExecutionRole.Arn
+</code></pre>
+</details>
+<h3>9.7 Delete the CloudFormation stack</h3>
+<ol class="steps"><li>Open <strong>CloudFormation → Stacks</strong> and select the stack you created.</li><li>Choose <strong>Delete</strong> and confirm.</li><li>Wait for <code class="inline">DELETE_COMPLETE</code>. CloudFormation will remove the resources it created, including the log groups defined in the template.</li><li>If deletion fails, inspect the Events tab. Do not manually delete shared resources that were not created by this stack.</li></ol>
+<div class="callout danger"><strong>Do not create the same named resources manually before deploying this template.</strong> Explicit function, role, state-machine, and log-group names must be unique within their relevant AWS scope. If a name already exists, choose another ResourcePrefix.</div>
+</section>
+
+<section class="card searchable" id="cost"><div class="eyebrow">12 • Cost</div><h2>Cost and resource footprint</h2>
+<p>This is intentionally a tiny, request-driven demo. It uses three short Lambda functions and one Standard Step Functions state machine. There is no always-on infrastructure.</p>
+<ul><li><strong>Lambda:</strong> charged based on requests and compute duration, subject to current regional pricing and any applicable free tier.</li><li><strong>Step Functions Standard:</strong> charged based on state transitions. This successful path uses three Task states; failed executions and additional states can change transition counts.</li><li><strong>CloudWatch Logs:</strong> log ingestion and storage can incur charges. Keep the lab short and clean up log groups if you do not need them.</li><li><strong>IAM:</strong> IAM roles and policies do not generally have a separate charge.</li></ul>
+<div class="callout warning"><strong>Do not treat “small” as “guaranteed free.”</strong> Check the current AWS pricing pages for your Region, account plan, and usage. If the lab is run repeatedly by a class, set an AWS Budget or use a controlled training account.</div>
+</section>
+<section class="card searchable" id="cleanup"><div class="eyebrow">13 • Cleanup</div><h2>Delete all lab resources</h2>
+<p>Clean up after capturing any screenshots or teaching notes. Deleting the state machine and functions does not always remove CloudWatch log groups automatically.</p>
+<ol class="steps"><li>In Step Functions, open <code class="inline">&lt;ResourcePrefix&gt;-OrderWorkflow</code> and delete the state machine. Confirm the deletion prompt.</li><li>In Lambda, delete <code class="inline">&lt;ResourcePrefix&gt;-ValidateOrder</code>, <code class="inline">&lt;ResourcePrefix&gt;-CalculateTotal</code>, and <code class="inline">&lt;ResourcePrefix&gt;-FormatResponse</code>.</li><li>In CloudWatch → Logs → Log groups, delete the three log groups matching the <code class="inline">/aws/lambda/&lt;ResourcePrefix&gt;-</code> prefix if you no longer need their history.</li><li>In IAM, delete the inline policy <code class="inline">&lt;ResourcePrefix&gt;-InvokeLabFunctions</code> from <code class="inline">&lt;ResourcePrefix&gt;-StepFunctionsExecutionRole</code>, then delete that role.</li><li>In IAM, detach <code class="inline">AWSLambdaBasicExecutionRole</code> from <code class="inline">&lt;ResourcePrefix&gt;-LambdaExecutionRole</code>, then delete that role.</li><li>Check that no other resources were created accidentally during the lab.</li></ol>
+<div class="callout danger"><strong>Delete only the resources created for this lab.</strong> Do not delete shared IAM roles, policies, or log groups used by other workloads. If you selected auto-generated roles instead of the named roles in this guide, identify their attached resources carefully before removing them.</div>
+</section>
+<section class="card searchable" id="challenge"><div class="eyebrow">14 • Student exercises</div><h2>Exercises and expected learning</h2>
+<ol><li><strong>Change the input:</strong> set quantity to 5 and unitPrice to 9.99. Predict the total, execute, and verify.</li><li><strong>Trigger validation failure:</strong> set quantity to 0. Identify the failing state and compare its event history with a successful execution.</li><li><strong>Add a decision:</strong> add a Choice state after validation to route orders with total greater than 100 to a separate result path. (Hint: calculate the total before evaluating it, or add the decision after CalculateTotal.)</li><li><strong>Add controlled error handling:</strong> use a Catch field to route validation errors to a Fail or Pass state that returns a readable error message. Ensure the error path does not continue to CalculateTotal.</li><li><strong>Apply least privilege:</strong> explain why the state machine role needs invoke permissions while the Lambda role does not.</li><li><strong>Production design discussion:</strong> identify why separate execution roles per function, input schema validation, idempotency, alarms, and data protection may be needed in a real application.</li></ol>
+<h3>Completion criteria</h3><ul class="check"><li>Student created both IAM roles and reviewed the trust relationships.</li><li>Student attached only required permissions to the roles.</li><li>All three Lambda functions execute successfully in the state machine.</li><li>Student can explain input/output handoff between the Task states.</li><li>Student successfully demonstrates and diagnoses one failed execution.</li><li>All lab resources are removed.</li></ul>
+</section>
+<section class="card searchable" id="references"><div class="eyebrow">15 • Further reading</div><h2>Official AWS documentation</h2>
+<ul>
+<li><a href="https://docs.aws.amazon.com/step-functions/latest/dg/tutorial-creating-lambda-state-machine.html" target="_blank" rel="noopener">Create a Step Functions state machine that uses Lambda</a> — AWS console workflow and execution walkthrough.</li>
+<li><a href="https://docs.aws.amazon.com/step-functions/latest/dg/procedure-create-iam-role.html" target="_blank" rel="noopener">Create an IAM role for Step Functions</a> — trust relationships and invoke permissions.</li>
+<li><a href="https://docs.aws.amazon.com/step-functions/latest/dg/connect-lambda.html" target="_blank" rel="noopener">Invoke Lambda from Step Functions</a> — Lambda integration patterns and IAM permissions.</li>
+<li><a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html" target="_blank" rel="noopener">Lambda execution roles</a> — function permissions and least privilege.</li>
+<li><a href="https://docs.aws.amazon.com/lambda/latest/dg/monitoring-cloudwatchlogs.html" target="_blank" rel="noopener">Lambda logs in CloudWatch Logs</a> — required log permissions and log locations.</li>
+<li><a href="https://aws.amazon.com/step-functions/pricing/" target="_blank" rel="noopener">AWS Step Functions pricing</a> and <a href="https://aws.amazon.com/lambda/pricing/" target="_blank" rel="noopener">AWS Lambda pricing</a> — check current pricing before running a class.</li>
+</ul>
+<p class="muted">This is a classroom demonstration, not a production reference architecture. Console labels and available runtime versions may change. Follow your organization's IAM and account-governance requirements.</p>
+</section>
+</main></div>
+<footer>Minimal AWS Step Functions + Lambda lab • Use a dedicated training account and delete resources after practice.</footer>
+<script>
+const themeBtn=document.getElementById('themeBtn');
+themeBtn.addEventListener('click',()=>{const dark=document.documentElement.getAttribute('data-theme')!=='dark';document.documentElement.setAttribute('data-theme',dark?'dark':'light');themeBtn.textContent=dark?'☀️ Light mode':'🌙 Dark mode';});
+document.querySelectorAll('pre').forEach(pre=>{const btn=pre.querySelector('button.copy');if(!btn)return;btn.addEventListener('click',async()=>{const code=pre.querySelector('code').innerText;try{await navigator.clipboard.writeText(code);btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy',1200)}catch(e){btn.textContent='Select and copy';}})});
+const search=document.getElementById('search');search.addEventListener('input',()=>{const q=search.value.toLowerCase().trim();document.querySelectorAll('.searchable').forEach(s=>s.classList.toggle('hidden',q&&!s.innerText.toLowerCase().includes(q)));});
+const sections=[...document.querySelectorAll('main section[id]')],links=[...document.querySelectorAll('nav a')];const obs=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){links.forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+e.target.id));}}),{rootMargin:'-20% 0px -70% 0px'});sections.forEach(s=>obs.observe(s));
+</script>
+</body></html>

@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Minimal AWS EventBridge hands-on lab. A custom OrderPlaced event on the
+  default event bus matches an EventBridge rule and invokes a Lambda function.
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Description: Prefix applied to named lab resources (3-20 chars; letters, numbers, hyphens).
+    MinLength: 3
+    MaxLength: 20
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]*$'
+    ConstraintDescription: Must start with a letter and contain only letters, numbers, and hyphens.
+
+Resources:
+  LabLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ResourcePrefix}-EventProcessorRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${ResourcePrefix}-WriteFunctionLogs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ResourcePrefix}-EventProcessor:*'
+
+  EventProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ResourcePrefix}-EventProcessor'
+      Description: Processes OrderPlaced events delivered by Amazon EventBridge.
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LabLambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          from datetime import datetime, timezone
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              detail = event.get("detail", {})
+              order_id = detail.get("orderId", "UNKNOWN")
+              amount = detail.get("amount", 0)
+              currency = detail.get("currency", "USD")
+
+              result = {
+                  "message": "OrderPlaced event processed",
+                  "eventId": event.get("id"),
+                  "source": event.get("source"),
+                  "detailType": event.get("detail-type"),
+                  "orderId": order_id,
+                  "amount": amount,
+                  "currency": currency,
+                  "processedAtUtc": datetime.now(timezone.utc).isoformat()
+              }
+
+              logger.info("EVENT_RECEIVED %s", json.dumps(event, default=str))
+              logger.info("ORDER_PROCESSED %s", json.dumps(result, default=str))
+              return result
+
+  EventProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ResourcePrefix}-EventProcessor'
+      RetentionInDays: 7
+
+  OrderPlacedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ResourcePrefix}-OrderPlacedRule'
+      Description: Matches OrderPlaced events from the lab order publisher.
+      State: ENABLED
+      EventBusName: default
+      EventPattern:
+        source:
+          - lab.orders
+        detail-type:
+          - OrderPlaced
+      Targets:
+        - Id: EventProcessorTarget
+          Arn: !GetAtt EventProcessorFunction.Arn
+
+  AllowEventBridgeInvokeFunction:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EventProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt OrderPlacedRule.Arn
+
+Outputs:
+  EventBusName:
+    Description: The default event bus used by this lab.
+    Value: default
+  EventRuleName:
+    Description: EventBridge rule that filters OrderPlaced events.
+    Value: !Ref OrderPlacedRule
+  EventRuleArn:
+    Description: ARN of the EventBridge rule.
+    Value: !GetAtt OrderPlacedRule.Arn
+  LambdaFunctionName:
+    Description: Lambda target invoked by the rule.
+    Value: !Ref EventProcessorFunction
+  LambdaLogGroupName:
+    Description: CloudWatch Logs group for the Lambda function.
+    Value: !Ref EventProcessorLogGroup
