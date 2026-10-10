@@ -1,0 +1,1515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS Parallel Data Ingest Pipeline — Glue, Step Functions, S3, Crawler & Athena</title>
+<style>
+:root{
+  --navy:#111827;--blue:#2563eb;--blue2:#0ea5e9;--cyan:#06b6d4;--green:#059669;
+  --amber:#d97706;--red:#dc2626;--purple:#7c3aed;--bg:#f8fafc;--card:#fff;
+  --text:#1f2937;--muted:#64748b;--line:#e2e8f0;--code:#0f172a;--sidebar:285px;
+}
+*{box-sizing:border-box} html{scroll-behavior:smooth}
+body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.65}
+.sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar);background:#0b1220;color:#cbd5e1;overflow:auto;padding:22px 16px;z-index:5}
+.brand{font-size:18px;font-weight:800;color:white;margin:4px 8px 20px}.brand span{color:#60a5fa}
+.navgroup{margin:18px 8px 7px;text-transform:uppercase;font-size:10px;letter-spacing:.12em;color:#64748b;font-weight:800}
+nav a{display:block;color:#cbd5e1;text-decoration:none;padding:7px 10px;border-radius:7px;font-size:13px}
+nav a:hover{background:#172033;color:white}
+.main{margin-left:var(--sidebar);max-width:1280px;padding:0 44px 70px}
+.hero{margin:0 -44px 36px;padding:68px 54px;background:linear-gradient(135deg,#0b1220,#123b68 55%,#0e7490);color:white}
+.hero .eyebrow{color:#93c5fd;text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:800}
+.hero h1{font-size:42px;line-height:1.12;margin:12px 0 16px;max-width:900px}
+.hero p{max-width:900px;color:#dbeafe;font-size:17px}.badges span{display:inline-block;padding:5px 9px;border:1px solid #64748b55;border-radius:999px;margin:4px 5px 0 0;font-size:12px;background:#ffffff10}
+h2{font-size:29px;margin:48px 0 16px;color:#0f172a}h3{font-size:20px;margin:30px 0 10px}
+p{max-width:1000px}.lead{font-size:17px;color:#475569}
+.cardgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin:20px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:0 2px 8px #0f172a08}
+.card strong{display:block;color:#0f172a;margin-bottom:5px}.card small{color:var(--muted)}
+.callout{border-left:4px solid var(--blue);background:#eff6ff;padding:14px 18px;border-radius:0 9px 9px 0;margin:18px 0}
+.warn{border-left-color:var(--amber);background:#fffbeb}.danger{border-left-color:var(--red);background:#fef2f2}.success{border-left-color:var(--green);background:#ecfdf5}
+pre{background:var(--code);color:#e2e8f0;padding:18px;border-radius:10px;overflow:auto;font-size:13px;line-height:1.55;box-shadow:0 4px 16px #0f172a12}
+code{font-family:Consolas,Monaco,monospace} :not(pre)>code{background:#e2e8f0;padding:2px 5px;border-radius:4px;font-size:.9em}
+table{border-collapse:collapse;width:100%;background:white;margin:16px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f1f5f9;color:#0f172a}
+.step{display:grid;grid-template-columns:42px 1fr;gap:14px;margin:18px 0}.num{width:34px;height:34px;border-radius:50%;background:var(--blue);color:#fff;font-weight:800;display:grid;place-items:center}
+.diagram{background:white;border:1px solid var(--line);border-radius:12px;padding:22px;margin:20px 0;overflow:auto}
+.flow{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}.box{padding:14px 18px;border:2px solid #93c5fd;border-radius:10px;background:#eff6ff;min-width:130px;text-align:center;font-weight:700}.box.green{border-color:#6ee7b7;background:#ecfdf5}.box.amber{border-color:#fcd34d;background:#fffbeb}.box.purple{border-color:#c4b5fd;background:#f5f3ff}.arrow{font-size:26px;color:#64748b}
+.parallel{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;max-width:850px;margin:10px auto}.parallel .box{min-width:0}
+.toc-note{font-size:12px;color:#94a3b8;margin:0 8px 15px}.checklist li{margin:7px 0}.source{font-size:12px;color:#64748b}.footer{border-top:1px solid var(--line);margin-top:60px;padding-top:20px;color:#64748b;font-size:12px}
+@media(max-width:900px){.sidebar{position:relative;width:auto;height:auto}.main{margin-left:0;padding:0 20px}.hero{margin:0 -20px 30px;padding:45px 25px}.hero h1{font-size:32px}.parallel{grid-template-columns:repeat(2,1fr)}}
+@media print{.sidebar{display:none}.main{margin:0}.hero{margin:0}.main a{color:inherit}}
+
+<style>
+.template-code{margin:16px 0 26px;border:1px solid #1e293b;border-radius:10px;overflow:hidden;background:#0f172a}
+.template-code summary{cursor:pointer;list-style:none;padding:12px 16px;background:#172033;color:#e2e8f0;font-weight:700;user-select:none}
+.template-code summary::-webkit-details-marker{display:none}
+.template-code summary:before{content:"▶";display:inline-block;margin-right:9px;font-size:11px;color:#93c5fd}
+.template-code[open] summary:before{content:"▼"}
+.template-code .code-toolbar{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;background:#0b1220;border-top:1px solid #243044;color:#94a3b8;font-size:11px}
+.template-code pre{margin:0;border-radius:0;max-height:650px;overflow:auto}
+.template-code code{font-size:12px;white-space:pre}
+.download-row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px}
+.download-btn{display:inline-block;background:#2563eb;color:white!important;text-decoration:none;padding:8px 13px;border-radius:7px;font-size:13px;font-weight:700}
+.download-btn:hover{background:#1d4ed8}
+.copy-note{color:#94a3b8;font-size:11px}
+</style>
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="brand">AWS <span>Parallel Ingest</span></div>
+  <div class="toc-note">Updated technical lab guide</div>
+  <nav>
+    <div class="navgroup">Overview</div>
+    <a href="#overview">Architecture</a><a href="#why">Why parallel?</a><a href="#components">Components</a>
+    <div class="navgroup">Foundation</div>
+    <a href="#prereq">Prerequisites</a><a href="#iam">IAM & security</a><a href="#roles">Create IAM roles</a><a href="#network">VPC & networking</a><a href="#vpc-console">VPC console build</a><a href="#s3">S3 layout</a>
+    <div class="navgroup">Build</div>
+    <a href="#glue">1. Glue Python Shell</a><a href="#stepfunctions">2. Step Functions Map</a>
+    <a href="#crawler">3. Glue Crawler</a><a href="#athena">4. Athena</a>
+    <div class="navgroup">Production</div>
+    <a href="#errors">Retries & failures</a><a href="#monitoring">Monitoring</a><a href="#cost">Cost & scaling</a>
+    <div class="navgroup">Hands-on</div>
+    <a href="#test">End-to-end test</a><a href="#troubleshoot">Troubleshooting</a><a href="#cleanup">Cleanup</a>
+    <div class="navgroup">Reference</div>
+    <a href="#cloudformation-templates">3 CloudFormation templates</a><a href="#cloudformation">CloudFormation blueprint</a><a href="#checklist">Final checklist</a>
+  </nav>
+</aside>
+
+<main class="main">
+<header class="hero">
+  <div class="eyebrow">AWS Data Engineering Lab</div>
+  <h1>Parallel Data Ingest Pipeline with AWS Glue, Step Functions, S3, Glue Data Catalog & Athena</h1>
+  <p>A complete, updated implementation guide based on the public-holiday ingestion pattern, expanded with IAM, networking, error handling, observability, Athena output configuration, production considerations, and an implementation blueprint.</p>
+  <div class="badges"><span>Python Shell</span><span>Step Functions Map</span><span>S3 + Parquet</span><span>Glue Crawler</span><span>Data Catalog</span><span>Athena</span></div>
+</header>
+
+<section id="overview">
+<h2>1. Architecture overview</h2>
+<p class="lead">The reusable pattern is simple: one parameterized ingestion job is invoked once for each independent item in an input array. Step Functions supplies the item, Glue retrieves and writes the data, and downstream catalog/query services expose it for analytics.</p>
+<div class="diagram">
+  <div class="flow">
+    <div class="box">Nager.Date API<br><small>External source</small></div><div class="arrow">→</div>
+    <div class="box purple">Step Functions<br>Map</div><div class="arrow">→</div>
+    <div class="box">AWS Glue<br>Python Shell</div><div class="arrow">→</div>
+    <div class="box green">Amazon S3<br>Parquet</div><div class="arrow">→</div>
+    <div class="box amber">Glue Crawler<br>Data Catalog</div><div class="arrow">→</div>
+    <div class="box purple">Athena<br>SQL</div>
+  </div>
+</div>
+<div class="callout success"><strong>Core design principle:</strong> Do not create one Glue job per country. Create one generic job accepting <code>--country_code</code>, then fan out over the country list with a Map state.</div>
+</section>
+
+<section id="why">
+<h2>2. Why parallel processing?</h2>
+<p>If 60 independent API calls each take about one second, a sequential design waits for each call in turn. A Map state can overlap independent executions, bounded by a configured concurrency limit. AWS documents Inline Map as limited-concurrency and Distributed Map as the high-concurrency mode for larger workloads. citeturn0search3turn0search2</p>
+<div class="diagram">
+  <h3>Sequential</h3>
+  <div class="flow"><div class="box">US</div><div class="arrow">→</div><div class="box">IN</div><div class="arrow">→</div><div class="box">GB</div><div class="arrow">→</div><div class="box">DE</div></div>
+  <h3>Parallel Map</h3>
+  <div class="box purple" style="margin:auto">Map — concurrency limit</div>
+  <div class="parallel">
+    <div class="box">US<br>Glue</div><div class="box">IN<br>Glue</div><div class="box">GB<br>Glue</div><div class="box">DE<br>Glue</div>
+  </div>
+</div>
+</section>
+
+<section id="components">
+<h2>3. AWS components and responsibilities</h2>
+<div class="cardgrid">
+ <div class="card"><strong>Step Functions</strong><small>Orchestrates fan-out, waits for Glue jobs, handles retries/catches, and exposes execution history.</small></div>
+ <div class="card"><strong>AWS Glue Python Shell</strong><small>Runs the parameterized Python ingestion code. Python Shell jobs use an IAM role for resource access. citeturn0search0</small></div>
+ <div class="card"><strong>Amazon S3</strong><small>Durable landing layer for Parquet objects and Athena query results.</small></div>
+ <div class="card"><strong>Glue Crawler</strong><small>Discovers schema and registers tables in the Glue Data Catalog. citeturn0search4turn0search1</small></div>
+ <div class="card"><strong>Glue Data Catalog</strong><small>Stores table/column metadata that Athena uses to query S3 data. citeturn0search5</small></div>
+ <div class="card"><strong>Amazon Athena</strong><small>Serverless SQL query engine over the cataloged S3 data.</small></div>
+ <div class="card"><strong>CloudWatch</strong><small>Central place for Glue/Step Functions logs and operational metrics.</small></div>
+ <div class="card"><strong>IAM</strong><small>Controls what Glue, Step Functions, the crawler, and analysts can access.</small></div>
+</div>
+</section>
+
+<section id="prereq">
+<h2>4. Prerequisites</h2>
+<ul class="checklist">
+<li>An AWS account and a Region selected for the lab.</li>
+<li>Permissions to create IAM roles, S3 resources, Glue jobs/crawlers/databases, Step Functions state machines, and Athena workgroups/queries.</li>
+<li>A browser with access to the AWS Management Console.</li>
+<li>Basic Python, JSON, IAM and SQL knowledge.</li>
+<li>Internet access for the Glue job if it calls the public Nager.Date endpoint.</li>
+</ul>
+<div class="callout warn"><strong>Important:</strong> The original article deliberately does not cover authorization. This version does. The exact least-privilege policies depend on your account and deployment style, so treat the policies below as a lab baseline and tighten them for production. citeturn0view0</div>
+</section>
+
+<section id="iam">
+<h2>5. IAM and security model</h2>
+<p>Build the security model before creating Glue, Step Functions, and the crawler. Do not use the account root user or an administrator role for service execution.</p>
+
+<div class="diagram">
+<div class="flow">
+<div class="box purple">Step Functions<br>execution role</div><div class="arrow">→</div>
+<div class="box">Start / monitor<br>Glue job</div><div class="arrow">→</div>
+<div class="box green">Glue job role</div><div class="arrow">→</div>
+<div class="box green">S3 raw/</div>
+</div>
+<div class="flow" style="margin-top:18px">
+<div class="box amber">Crawler role</div><div class="arrow">→</div>
+<div class="box green">S3 raw/</div><div class="arrow">→</div>
+<div class="box purple">Glue Data Catalog</div>
+</div>
+</div>
+
+<table>
+<tr><th>Role</th><th>Trusted service</th><th>Purpose</th><th>Typical permissions</th></tr>
+<tr><td><code>ParallelIngestGlueRole</code></td><td>glue.amazonaws.com</td><td>Execute the Python Shell job</td><td>S3 write/read to the lab bucket, CloudWatch logging, and any KMS permissions if customer-managed encryption is used.</td></tr>
+<tr><td><code>ParallelIngestCrawlerRole</code></td><td>glue.amazonaws.com</td><td>Run the crawler</td><td>S3 list/read on the raw prefix and Glue Catalog permissions required by the crawler.</td></tr>
+<tr><td><code>ParallelIngestStepFunctionsRole</code></td><td>states.amazonaws.com</td><td>Start and wait for Glue jobs</td><td><code>glue:StartJobRun</code>, <code>glue:GetJobRun</code>, <code>glue:GetJobRuns</code>, and <code>glue:BatchStopJobRun</code> as appropriate.</td></tr>
+<tr><td><code>ParallelIngestAthenaRole</code> (optional)</td><td>Analyst/user/workgroup</td><td>Query data</td><td>Athena query permissions, Glue Catalog read, and S3 read/write for the Athena results location.</td></tr>
+</table>
+
+<div class="callout warn"><strong>Least privilege:</strong> The exact policy ARNs depend on your bucket, Region, account, Glue job name and KMS configuration. Start with the service-role baseline for the lab, then replace broad resource permissions with exact bucket/prefix and resource ARNs.</div>
+</section>
+
+<section id="roles">
+<h2>6. Create the IAM roles — step by step</h2>
+
+<h3>6.1 Create the Glue job role</h3>
+<div class="step"><div class="num">1</div><div><strong>Open IAM</strong><p>AWS Console → IAM → Roles → <strong>Create role</strong>.</p></div></div>
+<div class="step"><div class="num">2</div><div><strong>Select trusted entity</strong><p>Choose <strong>AWS service</strong> → use case <strong>Glue</strong>. The trusted principal should be <code>glue.amazonaws.com</code>.</p></div></div>
+<div class="step"><div class="num">3</div><div><strong>Attach the Glue service baseline</strong><p>For a learning lab, attach the AWS-managed Glue service role policy suggested by the console. For production, replace broad permissions with a customer-managed policy scoped to the exact S3/KMS resources.</p></div></div>
+<div class="step"><div class="num">4</div><div><strong>Name the role</strong><p>Use <code>ParallelIngestGlueRole</code>.</p></div></div>
+<div class="step"><div class="num">5</div><div><strong>Add S3 permissions</strong><p>Allow the job to list the bucket and write to <code>raw/*</code>. If the script reads dependencies from S3, grant read access to that dependency prefix too.</p></div></div>
+
+<pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListBucket",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET"
+    },
+    {
+      "Sid": "WriteRawData",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET/raw/*"
+    }
+  ]
+}</code></pre>
+
+<h3>6.2 Create the Step Functions execution role</h3>
+<div class="step"><div class="num">1</div><div><strong>IAM → Roles → Create role</strong>.</div></div>
+<div class="step"><div class="num">2</div><div><strong>Trusted entity:</strong> AWS service → Step Functions. Principal: <code>states.amazonaws.com</code>.</div></div>
+<div class="step"><div class="num">3</div><div><strong>Name:</strong> <code>ParallelIngestStepFunctionsRole</code>.</div></div>
+<div class="step"><div class="num">4</div><div><strong>Allow Glue execution:</strong> grant only the Glue job actions required by the state machine.</div></div>
+
+<pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunGlueJob",
+      "Effect": "Allow",
+      "Action": [
+        "glue:StartJobRun",
+        "glue:GetJobRun",
+        "glue:GetJobRuns",
+        "glue:BatchStopJobRun"
+      ],
+      "Resource": "arn:aws:glue:REGION:ACCOUNT_ID:job/parallel-holiday-ingest"
+    }
+  ]
+}</code></pre>
+
+<h3>6.3 Create the Glue crawler role</h3>
+<div class="step"><div class="num">1</div><div><strong>IAM → Roles → Create role</strong>.</div></div>
+<div class="step"><div class="num">2</div><div><strong>Trusted entity:</strong> AWS service → Glue.</div></div>
+<div class="step"><div class="num">3</div><div><strong>Name:</strong> <code>ParallelIngestCrawlerRole</code>.</div></div>
+<div class="step"><div class="num">4</div><div><strong>S3 read:</strong> allow <code>s3:ListBucket</code> on the bucket and <code>s3:GetObject</code> on <code>raw/*</code>.</div></div>
+<div class="step"><div class="num">5</div><div><strong>Catalog permissions:</strong> use the crawler/service-role permissions required to create or update the Data Catalog.</div></div>
+
+<h3>6.4 Optional analyst/Athena permissions</h3>
+<p>Do not give the ingestion roles Athena permissions just because Athena is downstream. Separate query access from pipeline execution access. Analysts generally need Glue Catalog read, Athena query permissions, and access to the Athena results prefix.</p>
+
+<div class="callout success"><strong>Important separation:</strong> Step Functions should orchestrate. Glue should ingest. The crawler should catalog. Athena should query. Keeping these permissions separated reduces blast radius.</div>
+</section>
+
+<section id="network">
+<h2>7. VPC and networking architecture</h2>
+
+<p>There are two valid configurations for this lab. Choose deliberately rather than accidentally mixing them.</p>
+
+<div class="cardgrid">
+<div class="card"><strong>Option A — Simple lab</strong><small>Do not attach the Glue job to a VPC. This is the easiest configuration for a public Nager.Date API and avoids NAT/VPC complexity.</small></div>
+<div class="card"><strong>Option B — VPC-enabled lab</strong><small>Place Glue network interfaces in private subnets. Use NAT for public API access and an S3 Gateway VPC endpoint so S3 traffic can remain inside AWS.</small></div>
+</div>
+
+<div class="callout warn"><strong>Recommended for this expanded hands-on guide:</strong> Option B if the goal is to learn AWS networking as well as Glue. Option A if the goal is only to learn Step Functions + Glue orchestration.</div>
+
+<h3>7.1 VPC-enabled architecture</h3>
+<div class="diagram">
+<div class="flow">
+<div class="box">Internet</div><div class="arrow">→</div><div class="box">Internet Gateway</div><div class="arrow">→</div><div class="box amber">Public subnet<br>NAT Gateway</div>
+</div>
+<div class="flow" style="margin-top:20px">
+<div class="box">Private subnet A<br>Glue ENI</div><div class="arrow">→</div><div class="box amber">NAT Gateway</div><div class="arrow">→</div><div class="box">Internet<br>Nager API</div>
+</div>
+<div class="flow" style="margin-top:20px">
+<div class="box">Private subnet A<br>Glue ENI</div><div class="arrow">→</div><div class="box green">S3 Gateway VPC Endpoint</div><div class="arrow">→</div><div class="box green">Amazon S3</div>
+</div>
+</div>
+
+<h3>7.2 Required network components</h3>
+<table>
+<tr><th>Component</th><th>Purpose</th><th>Required?</th></tr>
+<tr><td>VPC</td><td>Network boundary for the VPC-enabled Glue connection.</td><td>Only for Option B.</td></tr>
+<tr><td>Internet Gateway</td><td>Internet connectivity for public subnet resources and NAT Gateway.</td><td>Yes for Option B.</td></tr>
+<tr><td>Public subnet</td><td>Hosts the NAT Gateway.</td><td>Yes for Option B with public NAT.</td></tr>
+<tr><td>Private subnet</td><td>Hosts Glue-created network interfaces.</td><td>Yes for VPC-enabled Glue.</td></tr>
+<tr><td>Public route table</td><td>Routes <code>0.0.0.0/0</code> to the Internet Gateway.</td><td>Yes.</td></tr>
+<tr><td>Private route table</td><td>Routes internet-bound traffic to the NAT Gateway.</td><td>Yes for public API access.</td></tr>
+<tr><td>NAT Gateway</td><td>Allows private subnet resources to initiate outbound internet connections.</td><td>Yes for public Nager API access from a private subnet.</td></tr>
+<tr><td>Elastic IP</td><td>Public address associated with a public NAT Gateway.</td><td>Yes for standard NAT Gateway creation.</td></tr>
+<tr><td>S3 Gateway endpoint</td><td>Routes S3 traffic privately through the AWS network.</td><td>Strongly recommended.</td></tr>
+<tr><td>Security group</td><td>Controls network traffic for Glue ENIs.</td><td>Yes when a Glue connection is used.</td></tr>
+<tr><td>Network ACL</td><td>Subnet-level stateless filtering.</td><td>Default NACL is sufficient for a lab.</td></tr>
+</table>
+</section>
+
+
+<section id="vpc-console">
+<h2>8. Create the VPC and gateways — step by step</h2>
+
+<div class="callout danger"><strong>Cost warning:</strong> A NAT Gateway is billed while it exists and also has data-processing charges. For a short lab, delete the NAT Gateway and its Elastic IP when finished.</div>
+
+<h3>8.1 Create the VPC</h3>
+<div class="step"><div class="num">1</div><div><strong>Open VPC console</strong><p>AWS Console → VPC → Your VPCs → <strong>Create VPC</strong>.</p></div></div>
+<div class="step"><div class="num">2</div><div><strong>Resources to create</strong><p>Select <strong>VPC only</strong> if you want to create each component manually.</p></div></div>
+<div class="step"><div class="num">3</div><div><strong>Name</strong><p><code>parallel-ingest-vpc</code>.</p></div></div>
+<div class="step"><div class="num">4</div><div><strong>IPv4 CIDR</strong><p>Use an unused private range such as <code>10.20.0.0/16</code>.</p></div></div>
+<div class="step"><div class="num">5</div><div><strong>Create</strong><p>Keep DNS resolution and DNS hostnames enabled.</p></div></div>
+
+<h3>8.2 Create subnets</h3>
+<table><tr><th>Subnet</th><th>CIDR</th><th>Role</th></tr>
+<tr><td><code>parallel-public-a</code></td><td><code>10.20.1.0/24</code></td><td>NAT Gateway</td></tr>
+<tr><td><code>parallel-private-a</code></td><td><code>10.20.10.0/24</code></td><td>Glue ENIs</td></tr>
+<tr><td><code>parallel-private-b</code></td><td><code>10.20.11.0/24</code></td><td>Optional second-AZ Glue subnet</td></tr></table>
+
+<div class="step"><div class="num">1</div><div>VPC console → Subnets → <strong>Create subnet</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Select <code>parallel-ingest-vpc</code>.</div></div>
+<div class="step"><div class="num">3</div><div>Choose an Availability Zone and create the public and private subnet(s).</div></div>
+
+<h3>8.3 Create and attach the Internet Gateway</h3>
+<div class="step"><div class="num">1</div><div>VPC → Internet gateways → <strong>Create internet gateway</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Name it <code>parallel-ingest-igw</code>.</div></div>
+<div class="step"><div class="num">3</div><div>Select the gateway → Actions → <strong>Attach to a VPC</strong> → <code>parallel-ingest-vpc</code>.</div></div>
+
+<h3>8.4 Create the public route table</h3>
+<div class="step"><div class="num">1</div><div>VPC → Route tables → <strong>Create route table</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Name: <code>parallel-public-rt</code>; VPC: <code>parallel-ingest-vpc</code>.</div></div>
+<div class="step"><div class="num">3</div><div>Routes → Edit routes → add <code>0.0.0.0/0</code> → Target: <code>parallel-ingest-igw</code>.</div></div>
+<div class="step"><div class="num">4</div><div>Subnet associations → associate <code>parallel-public-a</code>.</div></div>
+
+<h3>8.5 Allocate an Elastic IP</h3>
+<div class="step"><div class="num">1</div><div>VPC → Elastic IPs → <strong>Allocate Elastic IP address</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Keep the allocation for the current Region.</div></div>
+<div class="step"><div class="num">3</div><div>Record the allocation; it will be attached to the NAT Gateway.</div></div>
+
+<h3>8.6 Create the NAT Gateway</h3>
+<div class="step"><div class="num">1</div><div>VPC → NAT gateways → <strong>Create NAT gateway</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Subnet: <code>parallel-public-a</code>.</div></div>
+<div class="step"><div class="num">3</div><div>Connectivity type: <strong>Public</strong>.</div></div>
+<div class="step"><div class="num">4</div><div>Elastic IP allocation ID: select the EIP created above.</div></div>
+<div class="step"><div class="num">5</div><div>Create the NAT Gateway and wait until its state is <strong>Available</strong>.</div></div>
+
+<h3>8.7 Create the private route table</h3>
+<div class="step"><div class="num">1</div><div>Create route table <code>parallel-private-rt</code> in <code>parallel-ingest-vpc</code>.</div></div>
+<div class="step"><div class="num">2</div><div>Add route <code>0.0.0.0/0</code> → target: the NAT Gateway.</div></div>
+<div class="step"><div class="num">3</div><div>Associate <code>parallel-private-a</code> and, if used, <code>parallel-private-b</code>.</div></div>
+
+<h3>8.8 Create an S3 Gateway VPC endpoint</h3>
+<div class="step"><div class="num">1</div><div>VPC → Endpoints → <strong>Create endpoint</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Category: <strong>AWS services</strong>.</div></div>
+<div class="step"><div class="num">3</div><div>Find the regional S3 service with endpoint type <strong>Gateway</strong>.</div></div>
+<div class="step"><div class="num">4</div><div>Select <code>parallel-ingest-vpc</code>.</div></div>
+<div class="step"><div class="num">5</div><div>Associate <code>parallel-private-rt</code>.</div></div>
+<div class="step"><div class="num">6</div><div>Use a restrictive endpoint policy in production; the default full-access endpoint policy is acceptable only for a controlled learning lab.</div></div>
+
+<h3>8.9 Create the Glue security group</h3>
+<div class="step"><div class="num">1</div><div>EC2/VPC → Security Groups → <strong>Create security group</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Name: <code>parallel-glue-sg</code>.</div></div>
+<div class="step"><div class="num">3</div><div>VPC: <code>parallel-ingest-vpc</code>.</div></div>
+<div class="step"><div class="num">4</div><div>For this outbound-only API pattern, keep inbound rules empty unless your architecture specifically requires inbound traffic.</div></div>
+<div class="step"><div class="num">5</div><div>Allow outbound HTTPS (<code>TCP 443</code>) to the destinations required by the job. A lab can use outbound <code>0.0.0.0/0</code>; production should be more restrictive where practical.</div></div>
+
+<h3>8.10 Create the Glue connection</h3>
+<div class="step"><div class="num">1</div><div>Open AWS Glue → Data Catalog → <strong>Connections</strong> → <strong>Create connection</strong>.</div></div>
+<div class="step"><div class="num">2</div><div>Create a network connection using <code>parallel-ingest-vpc</code>.</div></div>
+<div class="step"><div class="num">3</div><div>Subnet: select <code>parallel-private-a</code>.</div></div>
+<div class="step"><div class="num">4</div><div>Security group: select <code>parallel-glue-sg</code>.</div></div>
+<div class="step"><div class="num">5</div><div>Name it <code>parallel-glue-network</code>.</div></div>
+<div class="step"><div class="num">6</div><div>Test/save the connection. The Glue job can then reference this connection when it needs VPC network access.</div></div>
+
+<div class="callout success"><strong>Why both NAT and S3 endpoint?</strong> The NAT Gateway provides outbound internet access for the Nager.Date API. The S3 Gateway endpoint lets S3 traffic use the AWS private network path instead of consuming NAT capacity and data processing.</div>
+
+<div class="callout warn"><strong>Do not put Glue in the public subnet just to get internet access.</strong> The normal VPC pattern is Glue ENIs in private subnet(s), with the private route table sending internet-bound traffic to NAT.</div>
+</section>
+
+<section id="s3">
+<h2>7. S3 data layout</h2>
+<pre><code>s3://&lt;bucket&gt;/
+├── raw/
+│   ├── US.parquet
+│   ├── IN.parquet
+│   ├── GB.parquet
+│   └── ...
+└── athena-results/
+    └── ... Athena query outputs ...</code></pre>
+<p>Keep ingestion data and Athena results in separate prefixes. This avoids crawler confusion and makes lifecycle policies easier to manage. Athena query results must have an S3 output location configured either in the workgroup or per query. citeturn1search0turn1search6</p>
+</section>
+
+<section id="glue">
+<h2>10. Lab 1 — Create the AWS Glue Python Shell ingestion job</h2>
+<div class="step"><div class="num">1</div><div><strong>Create an S3 bucket</strong><p>Use a globally unique bucket name. Create <code>raw/</code> and <code>athena-results/</code> prefixes. Enable default encryption and block public access.</p></div></div>
+<div class="step"><div class="num">2</div><div><strong>Create the Glue IAM role</strong><p>Attach the AWS-managed Glue service-role baseline as appropriate, then add narrowly scoped S3 permissions for the lab bucket. Avoid <code>s3:*</code> on <code>*</code> in production.</p></div></div>
+<div class="step"><div class="num">3</div><div><strong>Create a Python Shell job</strong><p>Select Python Shell. Current AWS documentation lists Python 3.9 for the Python Shell experience; Python 3.6 reached end of life in 2026. citeturn0search0</p></div></div>
+<div class="step"><div class="num">4</div><div><strong>Use a parameterized script</strong><p>The key contract is <code>--country_code</code>. The job should fail on HTTP errors rather than silently creating a partial output.</p></div></div>
+<pre><code>import sys
+import requests
+import boto3
+import pandas as pd
+from awsglue.utils import getResolvedOptions
+
+args = getResolvedOptions(sys.argv, ["country_code", "output_bucket"])
+country = args["country_code"]
+bucket = args["output_bucket"]
+
+year = 2026
+url = f"https://date.nager.at/api/v3/publicholidays/{year}/{country}"
+
+response = requests.get(url, timeout=30)
+response.raise_for_status()
+
+df = pd.DataFrame(response.json())
+columns = [c for c in ["date", "name", "countryCode"] if c in df.columns]
+df = df[columns]
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+local_file = f"/tmp/{country}.parquet"
+s3_key = f"raw/{country}.parquet"
+
+df.to_parquet(local_file, engine="pyarrow", index=False)
+boto3.client("s3").upload_file(local_file, bucket, s3_key)
+
+print(f"Uploaded s3://{bucket}/{s3_key}")</code></pre>
+<div class="callout warn"><strong>Why improve the original script?</strong> The article's sample uses a fixed 2024 endpoint and prints an HTTP failure without raising an exception. This version makes the year explicit, adds a timeout, raises on HTTP failure, and passes the bucket as a job argument so the same script can be reused across environments. The original workflow uses the same parameterized country-code concept. citeturn0view0</div>
+</section>
+
+<section id="stepfunctions">
+<h2>11. Lab 2 — Orchestrate parallel Glue runs with Step Functions</h2>
+<p>The original tutorial uses an Inline Map over <code>$.country_codes</code> and a concurrency limit of 30. That is a good teaching example for a modest JSON list. AWS also provides Distributed Map for very large datasets/high concurrency. citeturn0view0turn0search2</p>
+<pre><code>{
+  "country_codes": ["US", "IN", "GB", "DE", "FR"]
+}</code></pre>
+<h3>State machine blueprint</h3>
+<pre><code>{
+  "StartAt": "ForEachCountry",
+  "States": {
+    "ForEachCountry": {
+      "Type": "Map",
+      "ItemsPath": "$.country_codes",
+      "MaxConcurrency": 30,
+      "Iterator": {
+        "StartAt": "RunGlue",
+        "States": {
+          "RunGlue": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::glue:startJobRun.sync",
+            "Parameters": {
+              "JobName": "parallel-holiday-ingest",
+              "Arguments": {
+                "--country_code.$": "$",
+                "--output_bucket": "YOUR_BUCKET"
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Glue.ConcurrentRunsExceededException",
+                  "Glue.AWSGlueException",
+                  "States.TaskFailed"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "End": true
+    }
+  }
+}</code></pre>
+<p>In the optimized Glue integration, the Task resource can use <code>arn:aws:states:::glue:startJobRun.sync</code>; Step Functions waits for the job run to complete. citeturn0search6</p>
+<div class="callout danger"><strong>Retry design note:</strong> Do not blindly retry every error forever. Retry transient service/concurrency failures; route permanent input/API failures to a controlled failure path or record them for later reprocessing.</div>
+</section>
+
+<section id="crawler">
+<h2>12. Lab 3 — Catalog the Parquet files with AWS Glue Crawler</h2>
+<div class="step"><div class="num">1</div><div>Open AWS Glue → Crawlers → Create crawler.</div></div>
+<div class="step"><div class="num">2</div><div>Set the S3 data source to <code>s3://&lt;bucket&gt;/raw/</code>.</div></div>
+<div class="step"><div class="num">3</div><div>Use a crawler IAM role with permission to read the prefix and update the Data Catalog.</div></div>
+<div class="step"><div class="num">4</div><div>Create a database such as <code>holiday_lake</code>.</div></div>
+<div class="step"><div class="num">5</div><div>Run the crawler and verify that a table is created.</div></div>
+<p>Glue crawlers scan data, infer schema, and create/update Data Catalog tables. Athena can query successfully crawled tables. citeturn0search4turn0search1</p>
+<div class="callout warn"><strong>Schema/layout warning:</strong> Keep files belonging to the same logical table under a consistent prefix/schema. Athena maps a table to an S3 location, so mixing unrelated schemas in one prefix can produce incorrect or confusing query behavior. citeturn0search4</div>
+</section>
+
+<section id="athena">
+<h2>13. Lab 4 — Query with Amazon Athena</h2>
+<div class="step"><div class="num">1</div><div>Open Athena and select the correct Region and workgroup.</div></div>
+<div class="step"><div class="num">2</div><div>Configure an S3 query-result location, for example <code>s3://&lt;bucket&gt;/athena-results/</code>. Athena requires a result location unless a workgroup supplies one. citeturn1search1turn1search3</div></div>
+<div class="step"><div class="num">3</div><div>Select the Glue database and table.</div></div>
+<div class="step"><div class="num">4</div><div>Run validation queries.</div></div>
+<pre><code>-- Inspect the data
+SELECT *
+FROM holiday_lake.holidays
+LIMIT 20;
+
+-- Count rows by country
+SELECT countrycode, count(*) AS holiday_count
+FROM holiday_lake.holidays
+GROUP BY countrycode
+ORDER BY holiday_count DESC;
+
+-- Inspect one country
+SELECT date, name, countrycode
+FROM holiday_lake.holidays
+WHERE countrycode = 'IN'
+ORDER BY date;</code></pre>
+<div class="callout">For controlled environments, use an Athena workgroup to enforce the results location, encryption, CloudWatch metrics, and optionally data-scanned limits. citeturn1search3turn1search11</div>
+</section>
+
+<section id="errors">
+<h2>14. Error handling and retry strategy</h2>
+<table><tr><th>Failure</th><th>Example</th><th>Recommended response</th></tr>
+<tr><td>Transient AWS service error</td><td>Temporary Glue service exception</td><td>Retry with exponential backoff.</td></tr>
+<tr><td>Concurrency limit</td><td>Too many Glue runs</td><td>Retry/backoff or lower Map concurrency.</td></tr>
+<tr><td>API timeout</td><td>External API does not respond</td><td>Retry HTTP request with bounded timeout; fail after limit.</td></tr>
+<tr><td>HTTP 4xx</td><td>Invalid country code</td><td>Usually do not retry. Record the invalid item.</td></tr>
+<tr><td>Empty response</td><td>API returns no holidays</td><td>Decide whether empty output is valid; validate before publishing.</td></tr>
+<tr><td>S3 AccessDenied</td><td>Glue role lacks PutObject</td><td>Fix IAM/prefix policy; retrying will not solve authorization.</td></tr>
+<tr><td>Schema drift</td><td>API adds/removes fields</td><td>Validate schema and review crawler/table changes.</td></tr></table>
+<div class="diagram">
+<div class="flow"><div class="box purple">Map item</div><div class="arrow">→</div><div class="box">Glue .sync</div><div class="arrow">→</div><div class="box green">Success</div></div>
+<div class="flow" style="margin-top:14px"><div class="box purple">Failure</div><div class="arrow">→</div><div class="box amber">Retry?</div><div class="arrow">→</div><div class="box">Backoff</div><div class="arrow">→</div><div class="box red">Catch / record</div></div>
+</div>
+</section>
+
+<section id="monitoring">
+<h2>15. Monitoring and observability</h2>
+<ul>
+<li><strong>Step Functions:</strong> inspect execution graph, Map iterations, failed items, and execution history.</li>
+<li><strong>Glue:</strong> inspect job runs, duration, errors and logs.</li>
+<li><strong>S3:</strong> verify expected object count and prefixes.</li>
+<li><strong>Glue Crawler:</strong> verify run status and discovered table/schema.</li>
+<li><strong>Athena:</strong> inspect query history and bytes scanned.</li>
+<li><strong>CloudWatch:</strong> centralize service metrics/logs and create alarms for repeated failures.</li>
+</ul>
+<div class="callout success"><strong>Operational improvement:</strong> Add a correlation identifier such as an execution ID to logs. For larger pipelines, persist per-country status (success/failure/error message) so one bad item does not hide the state of the whole batch.</div>
+</section>
+
+<section id="cost">
+<h2>16. Cost, scaling and design trade-offs</h2>
+<table><tr><th>Decision</th><th>Teaching lab</th><th>Production consideration</th></tr>
+<tr><td>Map mode</td><td>Inline Map for a small JSON array</td><td>Distributed Map for very large/high-concurrency datasets. citeturn0search2</td></tr>
+<tr><td>Glue engine</td><td>Python Shell</td><td>Use Glue Spark when transformations/data volume justify distributed compute.</td></tr>
+<tr><td>Concurrency</td><td>30 as the original example</td><td>Size against API rate limits, Glue account/job limits and downstream capacity.</td></tr>
+<tr><td>File format</td><td>Parquet</td><td>Partition and compact data when volume grows.</td></tr>
+<tr><td>Crawler</td><td>Convenient schema discovery</td><td>Consider managed schema/table definitions when deterministic schemas are required.</td></tr>
+<tr><td>Athena</td><td>Ad-hoc SQL</td><td>Partition data and select only needed columns to reduce bytes scanned.</td></tr>
+</table>
+</section>
+
+<section id="test">
+<h2>17. End-to-end validation</h2>
+<h3>Step 1 — Start the state machine</h3>
+<pre><code>{
+  "country_codes": ["US", "IN", "GB", "DE", "FR"]
+}</code></pre>
+<h3>Step 2 — Confirm parallel Glue runs</h3>
+<p>Open Glue → ETL jobs → Runs. You should see multiple executions associated with the same state-machine execution.</p>
+<h3>Step 3 — Verify S3</h3>
+<pre><code>s3://&lt;bucket&gt;/raw/
+  US.parquet
+  IN.parquet
+  GB.parquet
+  DE.parquet
+  FR.parquet</code></pre>
+<h3>Step 4 — Run the crawler</h3>
+<p>Confirm crawler success and inspect the generated Data Catalog table.</p>
+<h3>Step 5 — Query Athena</h3>
+<pre><code>SELECT countrycode, count(*) AS rows
+FROM holiday_lake.holidays
+GROUP BY countrycode
+ORDER BY countrycode;</code></pre>
+<h3>Expected outcome</h3>
+<div class="callout success">Every requested country has a Parquet object, the crawler has registered the dataset, and Athena can query the cataloged S3 data.</div>
+</section>
+
+<section id="troubleshoot">
+<h2>18. Troubleshooting guide</h2>
+<table><tr><th>Symptom</th><th>Likely cause</th><th>Check</th></tr>
+<tr><td>Glue job cannot call API</td><td>Network/VPC route</td><td>Whether the job is VPC-attached and has valid outbound routing.</td></tr>
+<tr><td>Glue AccessDenied to S3</td><td>IAM role/prefix mismatch</td><td>Bucket policy, role policy, exact ARN and KMS permissions if used.</td></tr>
+<tr><td>Step Functions cannot start Glue</td><td>State-machine role</td><td>Glue StartJobRun/GetJobRun permissions and job ARN/name.</td></tr>
+<tr><td>Map fails immediately</td><td>Input path wrong</td><td>Input contains an array at <code>$.country_codes</code>.</td></tr>
+<tr><td>No Glue table</td><td>Crawler path/role issue</td><td>Correct S3 prefix and crawler IAM role.</td></tr>
+<tr><td>Athena says no output location</td><td>Workgroup/query results not configured</td><td>Set an S3 query-result location. citeturn1search1turn1search6</td></tr>
+<tr><td>Athena returns zero rows</td><td>Wrong table location/schema</td><td>Inspect Glue table S3 location and object format.</td></tr>
+</table>
+</section>
+
+
+<section id="cloudformation-templates">
+<h2>19. Three CloudFormation deployment options</h2>
+<p>Three templates are provided for different teaching and deployment goals. All three use the same logical pipeline: S3 → Glue → Step Functions Map → Glue Crawler/Data Catalog → Athena. The difference is how much infrastructure is automated.</p>
+
+<table>
+<tr><th>Template</th><th>What it creates</th><th>Best use</th></tr>
+<tr>
+<td><strong>01 — Full VPC-enabled</strong></td>
+<td>S3, VPC, public/private subnet, Internet Gateway, NAT Gateway, Elastic IP, route tables, S3 Gateway Endpoint, Glue security group/connection, IAM roles, Glue job, crawler, database, Step Functions and Athena workgroup.</td>
+<td>Complete networking + data engineering lab.</td>
+</tr>
+<tr>
+<td><strong>02 — Full simple / no VPC</strong></td>
+<td>S3, IAM roles, Glue database/job, crawler, Step Functions and Athena workgroup. No VPC, subnet, IGW, NAT or VPC endpoint.</td>
+<td>Fast classroom lab focused on Glue + Step Functions.</td>
+</tr>
+<tr>
+<td><strong>03 — Minimum classroom</strong></td>
+<td>S3, Glue database and a Glue execution role.</td>
+<td>Instructor demonstrates the remaining resources live in the console.</td>
+</tr>
+</table>
+
+<div class="callout warn"><strong>Important deployment prerequisite:</strong> The full templates reference the Glue Python Shell script at <code>s3://&lt;bucket&gt;/scripts/parallel_ingest.py</code>. CloudFormation creates the bucket and Glue job definition, but it does not magically place your local Python file into that S3 prefix. Upload the script before running the Glue job. For a fully automated deployment, package/upload the script first or use a deployment pipeline/custom resource.</div>
+
+<h3>19.1 Template 1 — Full CloudFormation with VPC enabled</h3>
+<p><strong>File:</strong> <code>01-full-vpc-enabled.yaml</code></p>
+<p>This is the most complete infrastructure stack. It creates the networking required for a Glue job that needs outbound access to the public Nager.Date API from a private subnet.</p>
+<pre><code>Resources created:
+S3 Bucket
+VPC
+Internet Gateway
+Public Subnet
+Private Subnet
+Public Route Table + default route
+Private Route Table + NAT route
+Elastic IP
+NAT Gateway
+S3 Gateway VPC Endpoint
+Glue Security Group
+Glue Network Connection
+Glue IAM Role
+Crawler IAM Role
+Step Functions IAM Role
+Glue Database
+Glue Python Shell Job
+Glue Crawler
+Step Functions State Machine
+Athena Workgroup</code></pre>
+<div class="callout danger"><strong>Cost:</strong> This stack creates a NAT Gateway. Delete the stack after the lab if you do not need it. NAT Gateway charges are separate from the other services.</div>
+
+<p><a href="01-full-vpc-enabled.yaml" download>Download Template 1 — Full VPC-enabled</a></p>
+<details class="template-code">
+  <summary>Template 1 — Full VPC-enabled CloudFormation — view complete YAML inline</summary>
+  <div class="code-toolbar">
+    <span>Complete VPC, networking, Glue, Step Functions, crawler and Athena stack.</span>
+    <span class="copy-note">Complete template • scroll to inspect</span>
+  </div>
+  <pre><code>AWSTemplateFormatVersion: &#x27;2010-09-09&#x27;
+Description: &gt;
+  Full VPC-enabled parallel data ingest lab using AWS Glue Python Shell,
+  Step Functions Map, S3, Glue Crawler, Glue Data Catalog and Athena.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: parallel-ingest
+  BucketName:
+    Type: String
+    Default: &#x27;&#x27;
+    Description: Optional globally unique S3 bucket name. Leave blank for a generated name.
+  GlueJobName:
+    Type: String
+    Default: parallel-holiday-ingest
+  GlueDatabaseName:
+    Type: String
+    Default: holiday_lake
+  MapConcurrency:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 100
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.20.1.0/24
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.20.10.0/24
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-south-1a
+
+Conditions:
+  HasBucketName: !Not [!Equals [!Ref BucketName, &#x27;&#x27;]]
+
+Resources:
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If [HasBucketName, !Ref BucketName, !Ref AWS::NoValue]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-vpc&#x27;
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-igw&#x27;
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-public-a&#x27;
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-private-a&#x27;
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-public-rt&#x27;
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-nat-eip&#x27;
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-nat&#x27;
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-private-rt&#x27;
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnetRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet
+
+  S3VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+      PolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal: &#x27;*&#x27;
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub &#x27;${DataBucket.Arn}/*&#x27;
+
+  GlueSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outbound access for AWS Glue network interfaces
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-glue-sg&#x27;
+
+  GlueNetworkConnection:
+    Type: AWS::Glue::Connection
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      ConnectionInput:
+        Name: !Sub &#x27;${ProjectName}-network&#x27;
+        ConnectionType: NETWORK
+        PhysicalConnectionRequirements:
+          AvailabilityZone: !Ref AvailabilityZone
+          SubnetId: !Ref PrivateSubnet
+          SecurityGroupIdList:
+            - !Ref GlueSecurityGroup
+
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-glue-role-${AWS::StackName}&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3RawWrite
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub &#x27;${DataBucket.Arn}/*&#x27;
+
+  CrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-crawler-role-${AWS::StackName}&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3RawRead
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub &#x27;${DataBucket.Arn}/raw/*&#x27;
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-sfn-role-${AWS::StackName}&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RunGlueJob
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                  - glue:GetJobRun
+                  - glue:GetJobRuns
+                  - glue:BatchStopJobRun
+                Resource: !Sub &#x27;arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}&#x27;
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref GlueDatabaseName
+        Description: Holiday data catalog for the parallel ingest lab
+
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Ref GlueJobName
+      Role: !GetAtt GlueJobRole.Arn
+      GlueVersion: &#x27;5.0&#x27;
+      Command:
+        Name: pythonshell
+        PythonVersion: &#x27;3.9&#x27;
+        ScriptLocation: !Sub &#x27;s3://${DataBucket}/scripts/parallel_ingest.py&#x27;
+      DefaultArguments:
+        &#x27;--job-language&#x27;: python
+        &#x27;--enable-continuous-cloudwatch-log&#x27;: &#x27;true&#x27;
+        &#x27;--enable-metrics&#x27;: &#x27;true&#x27;
+        &#x27;--TempDir&#x27;: !Sub &#x27;s3://${DataBucket}/tmp/&#x27;
+      Connections:
+        Connections:
+          - !Ref GlueNetworkConnection
+      MaxCapacity: 0.0625
+      ExecutionProperty:
+        MaxConcurrentRuns: 50
+      Timeout: 60
+
+  GlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub &#x27;${ProjectName}-crawler&#x27;
+      Role: !GetAtt CrawlerRole.Arn
+      DatabaseName: !Ref GlueDatabaseName
+      Targets:
+        S3Targets:
+          - Path: !Sub &#x27;s3://${DataBucket}/raw/&#x27;
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+
+  AthenaWorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: !Sub &#x27;${ProjectName}-athena&#x27;
+      Description: Athena workgroup for parallel ingest lab
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub &#x27;s3://${DataBucket}/athena-results/&#x27;
+
+  StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      Definition:
+        Comment: Parallel Glue ingestion using Map
+        StartAt: ForEachCountry
+        States:
+          ForEachCountry:
+            Type: Map
+            ItemsPath: $.country_codes
+            MaxConcurrency: !Ref MapConcurrency
+            Iterator:
+              StartAt: RunGlue
+              States:
+                RunGlue:
+                  Type: Task
+                  Resource: arn:aws:states:::glue:startJobRun.sync
+                  Parameters:
+                    JobName: !Ref GlueJobName
+                    Arguments:
+                      &#x27;--country_code.$&#x27;: $
+                      &#x27;--output_bucket&#x27;: !Ref DataBucket
+                  Retry:
+                    - ErrorEquals:
+                        - Glue.ConcurrentRunsExceededException
+                        - Glue.AWSGlueException
+                        - States.TaskFailed
+                      IntervalSeconds: 5
+                      MaxAttempts: 3
+                      BackoffRate: 2
+                  End: true
+            End: true
+
+Outputs:
+  BucketName:
+    Value: !Ref DataBucket
+  VpcId:
+    Value: !Ref VPC
+  PrivateSubnetId:
+    Value: !Ref PrivateSubnet
+  NatGatewayId:
+    Value: !Ref NatGateway
+  GlueJobName:
+    Value: !Ref GlueJobName
+  GlueCrawlerName:
+    Value: !Ref GlueCrawler
+  GlueDatabaseName:
+    Value: !Ref GlueDatabaseName
+  StateMachineArn:
+    Value: !Ref StateMachine
+  AthenaWorkGroup:
+    Value: !Ref AthenaWorkGroup
+</code></pre>
+</details>
+
+
+<h3>19.2 Template 2 — Full simple lab, excluding VPC components</h3>
+<p><strong>File:</strong> <code>02-full-simple-no-vpc.yaml</code></p>
+<p>This is the recommended template for a first classroom demonstration. It creates all data-engineering resources but deliberately leaves out VPC networking.</p>
+<pre><code>Resources created:
+S3 Bucket
+Glue IAM Role
+Crawler IAM Role
+Step Functions IAM Role
+Glue Database
+Glue Python Shell Job
+Glue Crawler
+Step Functions State Machine
+Athena Workgroup
+
+Not created:
+VPC
+Subnets
+Internet Gateway
+NAT Gateway
+Elastic IP
+Route Tables
+VPC Endpoints
+Glue VPC Connection</code></pre>
+
+<p><a href="02-full-simple-no-vpc.yaml" download>Download Template 2 — Full simple/no-VPC</a></p>
+<details class="template-code">
+  <summary>Template 2 — Full simple / no-VPC CloudFormation — view complete YAML inline</summary>
+  <div class="code-toolbar">
+    <span>Complete data pipeline without VPC networking components.</span>
+    <span class="copy-note">Complete template • scroll to inspect</span>
+  </div>
+  <pre><code>AWSTemplateFormatVersion: &#x27;2010-09-09&#x27;
+Description: &gt;
+  Simple non-VPC parallel data ingest lab using S3, Glue Python Shell,
+  Glue Crawler, Step Functions Map and Athena.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: parallel-ingest-simple
+  BucketName:
+    Type: String
+    Default: &#x27;&#x27;
+  GlueJobName:
+    Type: String
+    Default: parallel-holiday-ingest
+  GlueDatabaseName:
+    Type: String
+    Default: holiday_lake
+  MapConcurrency:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 100
+
+Conditions:
+  HasBucketName: !Not [!Equals [!Ref BucketName, &#x27;&#x27;]]
+
+Resources:
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If [HasBucketName, !Ref BucketName, !Ref AWS::NoValue]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-glue-role-${AWS::StackName}&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3RawAccess
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub &#x27;${DataBucket.Arn}/*&#x27;
+
+  CrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-crawler-role-${AWS::StackName}&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3RawRead
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub &#x27;${DataBucket.Arn}/raw/*&#x27;
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-sfn-role-${AWS::StackName}&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RunGlueJob
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                  - glue:GetJobRun
+                  - glue:GetJobRuns
+                  - glue:BatchStopJobRun
+                Resource: !Sub &#x27;arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}&#x27;
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref GlueDatabaseName
+
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Ref GlueJobName
+      Role: !GetAtt GlueJobRole.Arn
+      GlueVersion: &#x27;5.0&#x27;
+      Command:
+        Name: pythonshell
+        PythonVersion: &#x27;3.9&#x27;
+        ScriptLocation: !Sub &#x27;s3://${DataBucket}/scripts/parallel_ingest.py&#x27;
+      DefaultArguments:
+        &#x27;--job-language&#x27;: python
+        &#x27;--enable-continuous-cloudwatch-log&#x27;: &#x27;true&#x27;
+        &#x27;--enable-metrics&#x27;: &#x27;true&#x27;
+        &#x27;--TempDir&#x27;: !Sub &#x27;s3://${DataBucket}/tmp/&#x27;
+      MaxCapacity: 0.0625
+      ExecutionProperty:
+        MaxConcurrentRuns: 50
+      Timeout: 60
+
+  GlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub &#x27;${ProjectName}-crawler&#x27;
+      Role: !GetAtt CrawlerRole.Arn
+      DatabaseName: !Ref GlueDatabaseName
+      Targets:
+        S3Targets:
+          - Path: !Sub &#x27;s3://${DataBucket}/raw/&#x27;
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+
+  AthenaWorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: !Sub &#x27;${ProjectName}-athena&#x27;
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub &#x27;s3://${DataBucket}/athena-results/&#x27;
+
+  StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      Definition:
+        StartAt: ForEachCountry
+        States:
+          ForEachCountry:
+            Type: Map
+            ItemsPath: $.country_codes
+            MaxConcurrency: !Ref MapConcurrency
+            Iterator:
+              StartAt: RunGlue
+              States:
+                RunGlue:
+                  Type: Task
+                  Resource: arn:aws:states:::glue:startJobRun.sync
+                  Parameters:
+                    JobName: !Ref GlueJobName
+                    Arguments:
+                      &#x27;--country_code.$&#x27;: $
+                      &#x27;--output_bucket&#x27;: !Ref DataBucket
+                  Retry:
+                    - ErrorEquals:
+                        - Glue.ConcurrentRunsExceededException
+                        - Glue.AWSGlueException
+                        - States.TaskFailed
+                      IntervalSeconds: 5
+                      MaxAttempts: 3
+                      BackoffRate: 2
+                  End: true
+            End: true
+
+Outputs:
+  BucketName:
+    Value: !Ref DataBucket
+  GlueJobName:
+    Value: !Ref GlueJobName
+  GlueCrawlerName:
+    Value: !Ref GlueCrawler
+  StateMachineArn:
+    Value: !Ref StateMachine
+  AthenaWorkGroup:
+    Value: !Ref AthenaWorkGroup
+</code></pre>
+</details>
+
+
+<h3>19.3 Template 3 — Minimum infrastructure for classroom demonstration</h3>
+<p><strong>File:</strong> <code>03-minimum-classroom.yaml</code></p>
+<p>This version is intentionally small. The instructor can demonstrate the remaining AWS resources interactively, which is useful when teaching what each service does instead of hiding everything behind CloudFormation.</p>
+<pre><code>Resources created:
+S3 Bucket
+Glue Database
+Glue Job IAM Role
+
+Students create during class:
+Glue Python Shell Job
+Glue Crawler
+Crawler IAM role
+Step Functions execution role
+Step Functions state machine
+Map state
+Athena Workgroup
+Athena query configuration
+Optional VPC/networking
+Optional security group / Glue connection</code></pre>
+
+<p><a href="03-minimum-classroom.yaml" download>Download Template 3 — Minimum classroom</a></p>
+<details class="template-code">
+  <summary>Template 3 — Minimum classroom CloudFormation — view complete YAML inline</summary>
+  <div class="code-toolbar">
+    <span>Only the infrastructure intended to be pre-created before the class.</span>
+    <span class="copy-note">Complete template • scroll to inspect</span>
+  </div>
+  <pre><code>AWSTemplateFormatVersion: &#x27;2010-09-09&#x27;
+Description: &gt;
+  Minimum infrastructure for a classroom demonstration of parallel data ingestion.
+  Creates only S3, a Glue database and a basic Glue job role.
+  Students create the Glue job, crawler, Step Functions state machine and Athena
+  configuration manually during the class.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: parallel-ingest-min
+  BucketName:
+    Type: String
+    Default: &#x27;&#x27;
+  GlueDatabaseName:
+    Type: String
+    Default: holiday_lake
+
+Conditions:
+  HasBucketName: !Not [!Equals [!Ref BucketName, &#x27;&#x27;]]
+
+Resources:
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If [HasBucketName, !Ref BucketName, !Ref AWS::NoValue]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref GlueDatabaseName
+
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-glue-role-${AWS::StackName}&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: ClassroomS3Access
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub &#x27;${DataBucket.Arn}/*&#x27;
+
+Outputs:
+  BucketName:
+    Description: Bucket for raw data, scripts and Athena results
+    Value: !Ref DataBucket
+  GlueDatabaseName:
+    Description: Glue database students will use in class
+    Value: !Ref GlueDatabaseName
+  GlueJobRoleArn:
+    Description: Role to use when creating the Glue Python Shell job
+    Value: !GetAtt GlueJobRole.Arn
+  SuggestedPrefixes:
+    Description: Prefixes to create during the class
+    Value: raw/ | scripts/ | athena-results/ | tmp/
+</code></pre>
+</details>
+
+
+<h3>19.4 Recommended teaching sequence</h3>
+<div class="step"><div class="num">1</div><div><strong>Start with Template 3.</strong><p>Students see the S3 bucket, Glue database and IAM role already available. Then create the Glue job manually and discuss every setting.</p></div></div>
+<div class="step"><div class="num">2</div><div><strong>Create Step Functions manually.</strong><p>Explain the input array, Map state, <code>ItemsPath</code>, <code>MaxConcurrency</code>, and <code>glue:startJobRun.sync</code>.</p></div></div>
+<div class="step"><div class="num">3</div><div><strong>Create and run the crawler.</strong><p>Students see how Parquet files become Data Catalog metadata.</p></div></div>
+<div class="step"><div class="num">4</div><div><strong>Query through Athena.</strong><p>Demonstrate the relationship between S3 objects, Glue Catalog metadata and Athena SQL.</p></div></div>
+<div class="step"><div class="num">5</div><div><strong>Deploy Template 2.</strong><p>Show how the manually assembled architecture becomes repeatable infrastructure-as-code without adding network complexity.</p></div></div>
+<div class="step"><div class="num">6</div><div><strong>Deploy Template 1.</strong><p>Finish by adding private networking, NAT and the S3 endpoint, then explain why the network architecture matters.</p></div></div>
+
+<h3>19.5 Template comparison</h3>
+<table>
+<tr><th>Resource</th><th>Full VPC</th><th>Full simple</th><th>Minimum class</th></tr>
+<tr><td>S3</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>IAM roles</td><td>✓</td><td>✓</td><td>Glue role only</td></tr>
+<tr><td>Glue Database</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Glue Python Shell Job</td><td>✓</td><td>✓</td><td>Class creates</td></tr>
+<tr><td>Glue Crawler</td><td>✓</td><td>✓</td><td>Class creates</td></tr>
+<tr><td>Step Functions</td><td>✓</td><td>✓</td><td>Class creates</td></tr>
+<tr><td>Athena Workgroup</td><td>✓</td><td>✓</td><td>Class creates</td></tr>
+<tr><td>VPC</td><td>✓</td><td>—</td><td>Optional/manual</td></tr>
+<tr><td>NAT Gateway</td><td>✓</td><td>—</td><td>Optional/manual</td></tr>
+<tr><td>S3 VPC Endpoint</td><td>✓</td><td>—</td><td>Optional/manual</td></tr>
+</table>
+
+<h3>19.6 Deploying a template</h3>
+<pre><code># Example using AWS CLI after downloading the template
+aws cloudformation deploy \
+  --template-file 02-full-simple-no-vpc.yaml \
+  --stack-name parallel-ingest-simple \
+  --capabilities CAPABILITY_NAMED_IAM
+
+# VPC version
+aws cloudformation deploy \
+  --template-file 01-full-vpc-enabled.yaml \
+  --stack-name parallel-ingest-vpc \
+  --capabilities CAPABILITY_NAMED_IAM</code></pre>
+<div class="callout">The templates can also be deployed from CloudFormation → Create stack → With new resources → Upload a template file. The <code>CAPABILITY_NAMED_IAM</code> acknowledgement is required when CloudFormation creates named IAM resources.</div>
+</section>
+
+<section id="cloudformation">
+<h2>20. CloudFormation implementation blueprint</h2>
+<p>This is the resource model I recommend if the next step is to automate the complete lab with CloudFormation.</p>
+<pre><code>Resources:
+  DataBucket
+  GlueJobRole
+  GlueCrawlerRole
+  StepFunctionsRole
+  GlueDatabase
+  GlueJob
+  GlueCrawler
+  StateMachine
+  AthenaWorkGroup</code></pre>
+<div class="diagram">
+<div class="flow">
+<div class="box">S3 Bucket</div><div class="arrow">←</div><div class="box">Glue Job</div><div class="arrow">←</div><div class="box purple">Step Functions</div>
+</div>
+<div class="flow" style="margin-top:18px">
+<div class="box green">S3 raw/</div><div class="arrow">→</div><div class="box amber">Crawler</div><div class="arrow">→</div><div class="box purple">Glue Database/Table</div><div class="arrow">→</div><div class="box">Athena Workgroup</div>
+</div>
+</div>
+<p>A robust template should also create bucket encryption, public-access blocking, lifecycle rules, IAM policies scoped to the bucket/prefix, Glue job script delivery, crawler configuration, the Step Functions definition, and an Athena results prefix. For the public API variant, do not add a VPC unless the lab needs it; if a VPC is required, add the network/NAT design explicitly.</p>
+</section>
+
+<section id="cleanup">
+<h2>21. Cleanup</h2>
+<ol>
+<li>Stop/delete the Step Functions state machine.</li>
+<li>Delete the Glue crawler and Glue database/table.</li>
+<li>Delete the Glue job.</li>
+<li>Delete S3 objects and then the bucket.</li>
+<li>Delete the dedicated IAM roles/policies if they are not reused.</li>
+<li>Delete the Athena workgroup if created specifically for the lab.</li>
+</ol>
+<div class="callout danger"><strong>Cost warning:</strong> NAT gateways, if added for a VPC version, can incur charges even when traffic is low. Remove them when the lab is complete.</div>
+</section>
+
+<section id="checklist">
+<h2>22. Final implementation checklist</h2>
+<ul class="checklist">
+<li>☐ S3 bucket created with encryption and public access blocked.</li>
+<li>☐ <code>raw/</code> and <code>athena-results/</code> prefixes separated.</li>
+<li>☐ Glue Python Shell job accepts <code>--country_code</code> and bucket arguments.</li>
+<li>☐ Glue job role has only the required S3/log permissions.</li>
+<li>☐ Public API connectivity verified.</li>
+<li>☐ Step Functions Map reads <code>$.country_codes</code>.</li>
+<li>☐ Map concurrency is appropriate for API and Glue limits.</li>
+<li>☐ Glue integration uses <code>.sync</code> so downstream steps wait for job completion.</li>
+<li>☐ Retry policy covers transient failures without retrying permanent authorization/input failures.</li>
+<li>☐ Glue crawler reads only the intended S3 prefix.</li>
+<li>☐ Glue Data Catalog table created and schema verified.</li>
+<li>☐ Athena query-result location configured.</li>
+<li>☐ Athena queries return expected rows.</li>
+<li>☐ CloudWatch/Step Functions monitoring checked.</li>
+<li>☐ Resources cleaned up after the lab.</li>
+</ul>
+</section>
+
+<footer class="footer">
+<strong>Source basis:</strong> This guide is an updated implementation of the parallel ingestion pattern described in Rodolfo Marcos's 2024 Medium tutorial. It is intentionally rewritten and expanded rather than reproducing the article verbatim. AWS service behavior and recommendations were cross-checked against current AWS documentation. 
+<br><br>
+Original tutorial: https://rodolfo-marcos07.medium.com/how-to-create-a-parallel-data-ingest-pipeline-in-aws-4332a159431e
+<br>
+AWS references: Step Functions Map and Glue integration; Glue Python Shell jobs; Glue crawlers/Data Catalog; Athena query-result configuration.
+</footer>
+</main>
+</body>
+</html>

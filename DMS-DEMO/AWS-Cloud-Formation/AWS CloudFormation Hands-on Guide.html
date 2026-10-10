@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AWS CloudFormation: Build, Change and Clean Up a Stack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f8fa;--panel:#fff;--ink:#16202c;--mute:#5a6878;--line:#d9e0e7;--acc:#0b7a75;--accbg:#e1f3f1;--code:#111b27;--codeink:#e4ecf3;--warn:#8a5a00;--warnbg:#fff3d6;--ok:#17653a;--okbg:#e2f5e9;
+--sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e141b;--panel:#151d27;--ink:#e6edf3;--mute:#9aa9b8;--line:#263341;--acc:#4fd1c5;--accbg:#12302e;--code:#0a0f15;--warn:#f2c46b;--warnbg:#2e2410;--ok:#7fdca0;--okbg:#10291a}}
+:root[data-theme="dark"]{--bg:#0e141b;--panel:#151d27;--ink:#e6edf3;--mute:#9aa9b8;--line:#263341;--acc:#4fd1c5;--accbg:#12302e;--code:#0a0f15;--warn:#f2c46b;--warnbg:#2e2410;--ok:#7fdca0;--okbg:#10291a}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 var(--sans)}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+header b{font-weight:600}header span{color:var(--mute);font-size:14px}
+.sp{flex:1}
+button{font:inherit;cursor:pointer}
+.ib{background:none;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 10px;font-size:14px}
+.ib:hover{border-color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+#menu{display:none}
+.wrap{display:grid;grid-template-columns:280px minmax(0,1fr);max-width:1240px;margin:0 auto}
+nav{position:sticky;top:calc(env(safe-area-inset-top,0px) + 53px);align-self:start;height:calc(100vh - 53px);overflow:auto;padding:16px 12px 24px 20px;border-right:1px solid var(--line)}
+nav input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:14px var(--sans);margin-bottom:12px}
+nav a{display:block;padding:5px 10px;border-left:2px solid transparent;color:var(--mute);text-decoration:none;font-size:14.5px}
+nav a.sub{padding-left:24px;font-size:14px}
+nav a:hover{color:var(--ink)}
+nav a.on{color:var(--acc);border-left-color:var(--acc);background:var(--accbg);font-weight:500}
+main{padding:32px clamp(18px,4vw,48px) 80px;max-width:860px}
+h1{font-size:2rem;line-height:1.2;margin:0 0 8px}
+h2{font-size:1.45rem;margin:2.6rem 0 .6rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;margin:1.6rem 0 .4rem}
+p,li{max-width:70ch}
+.lead{color:var(--mute);font-size:1.08rem}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0;padding:0;list-style:none}
+.meta li{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px 10px;font-size:14px;color:var(--mute)}
+code{font-family:var(--mono);font-size:.88em;background:var(--accbg);padding:1px 5px;border-radius:4px}
+.cb{position:relative;margin:12px 0;border-radius:8px;background:var(--code);overflow:hidden}
+.cb .t{display:flex;justify-content:space-between;align-items:center;padding:6px 12px;font:12.5px var(--mono);color:#8ea2b5;border-bottom:1px solid #223041}
+.cb .t button{background:none;border:1px solid #33465a;color:#c3d0dc;border-radius:5px;padding:1px 8px;font:12px var(--mono)}
+.cb pre{margin:0;padding:12px 14px;overflow-x:auto;color:var(--codeink);font:13.5px/1.55 var(--mono)}
+.box{border-radius:8px;padding:12px 16px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.box>b{display:block;margin-bottom:2px}
+.box.warn{background:var(--warnbg);border-color:transparent;color:var(--warn)}
+.box.ok{background:var(--okbg);border-color:transparent;color:var(--ok)}
+.box.info{background:var(--accbg);border-color:transparent}
+.box p{margin:.3em 0}
+.tw{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:14.5px;background:var(--panel)}
+th,td{text-align:left;padding:8px 12px;border:1px solid var(--line);vertical-align:top}
+th{background:var(--accbg)}
+figure{margin:16px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto}
+figcaption{color:var(--mute);font-size:14px;margin-top:6px}
+svg text{font:13px var(--sans);fill:var(--ink)}
+svg .b{fill:var(--panel);stroke:var(--acc);stroke-width:1.5}
+svg .l{stroke:var(--mute);stroke-width:1.5;fill:none}
+details{border:1px solid var(--line);border-radius:8px;background:var(--panel);margin:8px 0;padding:8px 14px}
+summary{cursor:pointer;font-weight:500}
+@media (max-width:860px){
+.wrap{display:block}#menu{display:inline-block}
+nav{position:fixed;inset:calc(env(safe-area-inset-top,0px) + 53px) 0 0 0;height:auto;z-index:15;background:var(--bg);transform:translateX(-100%);transition:transform .2s;border:0}
+nav.open{transform:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}nav{transition:none}}
+</style>
+</head>
+<body>
+<header>
+<button class="ib" id="menu" aria-label="Open contents">Contents</button>
+<b>AWS CloudFormation</b><span>Hands-on guide</span>
+<div class="sp"></div>
+<button class="ib" id="theme" aria-label="Toggle dark mode">Dark mode</button>
+</header>
+<div class="wrap">
+<nav id="nav" aria-label="Guide contents">
+<input id="q" type="search" placeholder="Filter sections" aria-label="Filter sections">
+<a href="#overview">Overview</a>
+<a href="#objectives">Learning objectives</a>
+<a href="#prereq">Prerequisites</a>
+<a href="#concepts">Core concepts</a>
+<a href="#arch">Architecture</a>
+<a href="#s1">Write the template</a>
+<a class="sub" href="#s1">1. Template file</a>
+<a class="sub" href="#s2">2. Validate it</a>
+<a class="sub" href="#s3">3. Create the stack</a>
+<a class="sub" href="#s4">4. Update with a change set</a>
+<a class="sub" href="#s5">5. Detect drift</a>
+<a href="#sample">Sample template</a>
+<a href="#validate">Validation</a>
+<a href="#trouble">Troubleshooting</a>
+<a href="#cleanup">Cleanup</a>
+<a href="#next">Next steps</a>
+</nav>
+<main>
+<section id="overview">
+<h1>Provision infrastructure with AWS CloudFormation</h1>
+<p class="lead">Describe an S3 bucket in a template, deploy it as a stack, change it safely with a change set, check it for drift, and delete it.</p>
+<ul class="meta"><li>Level: beginner</li><li>Time: about 30 minutes</li><li>Cost: effectively free (one empty S3 bucket)</li></ul>
+<p>AWS CloudFormation lets you define AWS resources in a JSON or YAML <em>template</em>. CloudFormation creates, updates, and deletes those resources together as a single unit called a <em>stack</em>. You keep the template in version control and get the same result every time you deploy it.</p>
+</section>
+
+<section id="objectives">
+<h2>Learning objectives</h2>
+<ul>
+<li>Read and write a CloudFormation template in YAML.</li>
+<li>Validate a template and deploy it with the AWS CLI.</li>
+<li>Preview and apply an update using a change set.</li>
+<li>Detect configuration drift on a running stack.</li>
+<li>Delete a stack and confirm its resources are gone.</li>
+</ul>
+</section>
+
+<section id="prereq">
+<h2>Prerequisites</h2>
+<ul>
+<li>An AWS account and an IAM identity that can use CloudFormation and create S3 buckets.</li>
+<li>AWS CLI v2 installed and configured (<code>aws configure</code> or an SSO profile).</li>
+<li>A text editor and a terminal.</li>
+</ul>
+<div class="box info"><b>Set your Region once</b><p>Every command below uses your default Region. Check it with <code>aws configure get region</code>, or add <code>--region us-east-1</code> (or your Region) to each command.</p></div>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws sts get-caller-identity
+aws cloudformation list-stacks --max-items 1</pre></div>
+<div class="box ok"><b>Checkpoint</b><p>The first command prints your account ID and ARN. The second returns without an access error.</p></div>
+</section>
+
+<section id="concepts">
+<h2>Core concepts</h2>
+<div class="tw"><table>
+<tr><th>Term</th><th>What it means</th></tr>
+<tr><td>Template</td><td>A YAML or JSON file that declares the resources you want.</td></tr>
+<tr><td>Stack</td><td>The set of resources CloudFormation manages from one template.</td></tr>
+<tr><td>Parameters</td><td>Values you pass in at deploy time so one template can be reused.</td></tr>
+<tr><td>Outputs</td><td>Values the stack exposes after creation, such as a bucket name.</td></tr>
+<tr><td>Change set</td><td>A preview of what an update will add, modify, or replace.</td></tr>
+<tr><td>Drift</td><td>A difference between the template and the real resource, usually from a manual edit.</td></tr>
+</table></div>
+</section>
+
+<section id="arch">
+<h2>Architecture</h2>
+<figure>
+<svg viewBox="0 0 640 130" width="100%" role="img" aria-label="Template flows into CloudFormation, which creates a stack containing an S3 bucket">
+<rect class="b" x="10" y="35" width="150" height="60" rx="8"/><text x="85" y="62" text-anchor="middle">Template</text><text x="85" y="80" text-anchor="middle">bucket.yaml</text>
+<path class="l" d="M160 65H218"/><path class="l" d="M212 59l6 6-6 6"/>
+<rect class="b" x="220" y="35" width="150" height="60" rx="8"/><text x="295" y="62" text-anchor="middle">CloudFormation</text><text x="295" y="80" text-anchor="middle">service</text>
+<path class="l" d="M370 65H428"/><path class="l" d="M422 59l6 6-6 6"/>
+<rect class="b" x="430" y="10" width="200" height="110" rx="8" stroke-dasharray="5 4"/><text x="530" y="30" text-anchor="middle">Stack: cfn-lab-bucket</text>
+<rect class="b" x="460" y="48" width="140" height="56" rx="8"/><text x="530" y="72" text-anchor="middle">S3 bucket</text><text x="530" y="90" text-anchor="middle">versioning on</text>
+</svg>
+<figcaption>You supply the template. CloudFormation creates and tracks the resources in the stack.</figcaption>
+</figure>
+</section>
+
+<section id="s1">
+<h2>Step 1. Write the template</h2>
+<p>Create a file named <code>bucket.yaml</code>. The bucket name combines your account ID, Region, and a suffix parameter, which keeps it globally unique.</p>
+<div class="cb"><div class="t"><span>bucket.yaml</span><button data-copy>Copy</button></div><pre>AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation lab - versioned S3 bucket
+
+Parameters:
+  NameSuffix:
+    Type: String
+    Default: cfn-lab
+    AllowedPattern: "[a-z0-9-]+"
+    Description: Lowercase suffix added to the bucket name
+
+Resources:
+  LabBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub "${AWS::AccountId}-${AWS::Region}-${NameSuffix}"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  BucketName:
+    Description: Name of the bucket
+    Value: !Ref LabBucket
+  BucketArn:
+    Description: ARN of the bucket
+    Value: !GetAtt LabBucket.Arn</pre></div>
+<div class="box info"><b>What to notice</b><p><code>!Ref</code> returns the bucket name, <code>!GetAtt</code> reads an attribute, and <code>!Sub</code> fills in <code>${...}</code> values. <code>AWS::AccountId</code> and <code>AWS::Region</code> are built-in pseudo parameters.</p></div>
+</section>
+
+<section id="s2">
+<h2>Step 2. Validate the template</h2>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws cloudformation validate-template --template-body file://bucket.yaml</pre></div>
+<p>Validation checks syntax and structure. It does not check that you have permission to create the resources or that the bucket name is free.</p>
+<div class="box ok"><b>Checkpoint</b><p>The output lists your <code>NameSuffix</code> parameter and the description. A syntax error shows the offending line instead.</p></div>
+</section>
+
+<section id="s3">
+<h2>Step 3. Create the stack</h2>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws cloudformation create-stack \
+  --stack-name cfn-lab-bucket \
+  --template-body file://bucket.yaml
+
+aws cloudformation wait stack-create-complete --stack-name cfn-lab-bucket
+
+aws cloudformation describe-stacks --stack-name cfn-lab-bucket \
+  --query "Stacks[0].[StackStatus,Outputs]"</pre></div>
+<p>To watch progress, open <strong>CloudFormation &gt; Stacks &gt; cfn-lab-bucket &gt; Events</strong> in the console, or run <code>aws cloudformation describe-stack-events --stack-name cfn-lab-bucket</code>.</p>
+<div class="box ok"><b>Expected result</b><p>The status is <code>CREATE_COMPLETE</code> and the outputs show your bucket name and ARN.</p></div>
+</section>
+
+<section id="s4">
+<h2>Step 4. Update with a change set</h2>
+<p>A change set shows the effect of an update before anything changes. Edit <code>bucket.yaml</code> and add a tag under <code>Properties</code> of <code>LabBucket</code>:</p>
+<div class="cb"><div class="t"><span>bucket.yaml (add under Properties)</span><button data-copy>Copy</button></div><pre>      Tags:
+        - Key: Project
+          Value: cfn-lab</pre></div>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws cloudformation create-change-set \
+  --stack-name cfn-lab-bucket \
+  --change-set-name add-tag \
+  --template-body file://bucket.yaml
+
+aws cloudformation wait change-set-create-complete \
+  --stack-name cfn-lab-bucket --change-set-name add-tag
+
+aws cloudformation describe-change-set \
+  --stack-name cfn-lab-bucket --change-set-name add-tag \
+  --query "Changes[].ResourceChange.[Action,LogicalResourceId,Replacement]"</pre></div>
+<p>Read the <code>Replacement</code> column. <code>False</code> means the bucket is updated in place. <code>True</code> means CloudFormation would delete and recreate it, which you should avoid for resources that hold data. Apply the change when you are satisfied:</p>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws cloudformation execute-change-set \
+  --stack-name cfn-lab-bucket --change-set-name add-tag
+
+aws cloudformation wait stack-update-complete --stack-name cfn-lab-bucket</pre></div>
+<div class="box ok"><b>Checkpoint</b><p>The stack status is <code>UPDATE_COMPLETE</code>. The bucket now has the <code>Project</code> tag.</p></div>
+</section>
+
+<section id="s5">
+<h2>Step 5. Detect drift</h2>
+<p>Change the bucket outside CloudFormation to see drift. Suspend versioning with the CLI, then run drift detection.</p>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>BUCKET=$(aws cloudformation describe-stacks --stack-name cfn-lab-bucket \
+  --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" --output text)
+
+aws s3api put-bucket-versioning --bucket "$BUCKET" \
+  --versioning-configuration Status=Suspended
+
+ID=$(aws cloudformation detect-stack-drift --stack-name cfn-lab-bucket \
+  --query StackDriftDetectionId --output text)
+
+aws cloudformation describe-stack-drift-detection-status \
+  --stack-drift-detection-id "$ID"
+
+aws cloudformation describe-stack-resource-drifts \
+  --stack-name cfn-lab-bucket --stack-resource-drift-status-filters MODIFIED</pre></div>
+<div class="box ok"><b>Expected result</b><p>Run the status command until it shows <code>DETECTION_COMPLETE</code>. The stack drift status is <code>DRIFTED</code>, and the resource drift output shows <code>VersioningConfiguration</code> differing from the template.</p></div>
+<div class="box warn"><b>Fix drift in the template, not by hand</b><p>To restore the template's state, update the stack again, or set versioning back with <code>aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled</code>. Drift detection does not change anything on its own.</p></div>
+</section>
+
+<section id="sample">
+<h2>Sample template: all main sections</h2>
+<p>The lab template above is minimal. This larger sample uses every common template section: <code>Parameters</code>, <code>Mappings</code>, <code>Conditions</code>, <code>Resources</code>, and <code>Outputs</code>. It creates a log bucket and a DynamoDB table, and changes its behavior for <code>dev</code> or <code>prod</code>.</p>
+<div class="cb"><div class="t"><span>sample-app.yaml</span><button data-copy>Copy</button></div><pre>AWSTemplateFormatVersion: "2010-09-09"
+Description: Sample template - log bucket and orders table for dev or prod
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Deployment environment
+
+Mappings:
+  EnvSettings:
+    dev:
+      LogRetentionDays: 7
+    prod:
+      LogRetentionDays: 90
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
+Resources:
+  LogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::AccountId}-${AWS::Region}-${Environment}-logs"
+      VersioningConfiguration: !If
+        - IsProd
+        - Status: Enabled
+        - !Ref AWS::NoValue
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireLogs
+            Status: Enabled
+            ExpirationInDays: !FindInMap [EnvSettings, !Ref Environment, LogRetentionDays]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: OrderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: OrderId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  LogBucketName:
+    Description: Name of the log bucket
+    Value: !Ref LogBucket
+  OrdersTableName:
+    Description: Name of the DynamoDB table
+    Value: !Ref OrdersTable
+    Export:
+      Name: !Sub "${AWS::StackName}-OrdersTableName"</pre></div>
+<div class="tw"><table>
+<tr><th>Feature</th><th>What it does in this template</th></tr>
+<tr><td><code>AllowedValues</code></td><td>Rejects any <code>Environment</code> other than <code>dev</code> or <code>prod</code>.</td></tr>
+<tr><td><code>Mappings</code> + <code>!FindInMap</code></td><td>Looks up log retention: 7 days for dev, 90 days for prod.</td></tr>
+<tr><td><code>Conditions</code> + <code>!If</code></td><td>Turns on bucket versioning and table point-in-time recovery only in prod.</td></tr>
+<tr><td><code>AWS::NoValue</code></td><td>Leaves out the versioning property entirely when the condition is false.</td></tr>
+<tr><td>No <code>TableName</code></td><td>CloudFormation generates a unique name, so you can deploy the template more than once.</td></tr>
+<tr><td><code>Export</code></td><td>Lets other stacks in the same Region read the table name with <code>!ImportValue</code>.</td></tr>
+</table></div>
+<h3>Deploy the sample</h3>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws cloudformation validate-template --template-body file://sample-app.yaml
+
+aws cloudformation create-stack \
+  --stack-name cfn-sample-dev \
+  --template-body file://sample-app.yaml \
+  --parameters ParameterKey=Environment,ParameterValue=dev
+
+aws cloudformation wait stack-create-complete --stack-name cfn-sample-dev
+
+aws cloudformation describe-stacks --stack-name cfn-sample-dev \
+  --query "Stacks[0].Outputs"</pre></div>
+<div class="box ok"><b>Checkpoint</b><p>The stack reaches <code>CREATE_COMPLETE</code> and the outputs list the bucket and table names. To see the prod behavior, create a second stack named <code>cfn-sample-prod</code> with <code>ParameterValue=prod</code>.</p></div>
+<div class="box warn"><b>Clean up this stack too</b><p>Run <code>aws cloudformation delete-stack --stack-name cfn-sample-dev</code> (and the same for <code>cfn-sample-prod</code> if you created it). Empty the log bucket first if you added objects.</p></div>
+</section>
+
+<section id="validate">
+<h2>Validation</h2>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws cloudformation describe-stacks --stack-name cfn-lab-bucket \
+  --query "Stacks[0].StackStatus"
+aws s3api get-bucket-versioning --bucket "$BUCKET"
+aws s3api get-bucket-tagging --bucket "$BUCKET"</pre></div>
+<ul>
+<li>Stack status is <code>CREATE_COMPLETE</code> or <code>UPDATE_COMPLETE</code>.</li>
+<li>Versioning is <code>Enabled</code> (after you restore it).</li>
+<li>The <code>Project</code> tag is present.</li>
+</ul>
+</section>
+
+<section id="trouble">
+<h2>Troubleshooting</h2>
+<details><summary>CREATE_FAILED: bucket already exists</summary><p>Bucket names are global. Redeploy with a different suffix: <code>--parameters ParameterKey=NameSuffix,ParameterValue=cfn-lab-2</code>. A failed create leaves the stack in <code>ROLLBACK_COMPLETE</code>, so delete it before retrying.</p></details>
+<details><summary>AccessDenied or "not authorized"</summary><p>Your IAM identity lacks a permission such as <code>cloudformation:CreateStack</code> or <code>s3:CreateBucket</code>. The stack Events tab names the denied action. Verify the exact permissions your organization requires.</p></details>
+<details><summary>Template format error</summary><p>Re-run <code>validate-template</code>. Check YAML indentation (spaces only) and that short-form functions like <code>!Sub</code> are spelled correctly.</p></details>
+<details><summary>DELETE_FAILED: bucket not empty</summary><p>CloudFormation cannot delete a bucket that holds objects. Empty it first, including old versions. See the cleanup step.</p></details>
+</section>
+
+<section id="cleanup">
+<h2>Cleanup</h2>
+<div class="cb"><div class="t"><span>bash</span><button data-copy>Copy</button></div><pre>aws cloudformation delete-stack --stack-name cfn-lab-bucket
+aws cloudformation wait stack-delete-complete --stack-name cfn-lab-bucket</pre></div>
+<div class="box ok"><b>Checkpoint</b><p><code>aws cloudformation describe-stacks --stack-name cfn-lab-bucket</code> now returns an error saying the stack does not exist. Also delete your local <code>bucket.yaml</code> if you no longer need it.</p></div>
+</section>
+
+<section id="next">
+<h2>Next steps</h2>
+<ul>
+<li>Add an IAM role or a Lambda function and wire them together with <code>!GetAtt</code>.</li>
+<li>Split large templates into nested stacks, or deploy one template to many accounts with StackSets.</li>
+<li>Try the AWS Cloud Development Kit (CDK) to generate templates from code.</li>
+<li>Read the official <em>AWS CloudFormation User Guide</em> for the full resource reference. Verify current resource properties there before using them in production.</li>
+</ul>
+</section>
+</main>
+</div>
+<script>
+(function(){
+var root=document.documentElement,tb=document.getElementById('theme');
+try{var s=localStorage.getItem('cfn-theme');if(s)root.setAttribute('data-theme',s)}catch(e){}
+tb.onclick=function(){
+var dark=root.getAttribute('data-theme')==='dark'||(!root.getAttribute('data-theme')&&matchMedia('(prefers-color-scheme:dark)').matches);
+var n=dark?'light':'dark';root.setAttribute('data-theme',n);
+try{localStorage.setItem('cfn-theme',n)}catch(e){}};
+var nav=document.getElementById('nav');
+document.getElementById('menu').onclick=function(){nav.classList.toggle('open')};
+var links=[].slice.call(nav.querySelectorAll('a'));
+links.forEach(function(a){a.addEventListener('click',function(){nav.classList.remove('open')})});
+document.getElementById('q').addEventListener('input',function(e){
+var v=e.target.value.toLowerCase();
+links.forEach(function(a){a.style.display=a.textContent.toLowerCase().indexOf(v)>-1?'':'none'})});
+var secs=[].slice.call(document.querySelectorAll('main section'));
+var io=new IntersectionObserver(function(es){es.forEach(function(en){
+if(en.isIntersecting){links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+en.target.id&&!a.classList.contains('sub')||a.classList.contains('sub')&&a.getAttribute('href')==='#'+en.target.id)})}})},{rootMargin:'-20% 0px -70% 0px'});
+secs.forEach(function(x){io.observe(x)});
+document.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){
+var t=b.closest('.cb').querySelector('pre').innerText;
+var done=function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)};
+try{navigator.clipboard.writeText(t).then(done,function(){})}catch(e){}}});
+})();
+</script>
+</body>
+</html>

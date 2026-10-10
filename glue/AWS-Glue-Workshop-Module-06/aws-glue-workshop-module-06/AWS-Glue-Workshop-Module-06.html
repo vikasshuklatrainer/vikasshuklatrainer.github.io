@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AWS Glue Workshop - Module 06 - Workflows & Triggers</title>
+<style>
+:root{--bg:#fff;--panel:#f6f8fa;--ink:#172033;--muted:#5b6575;--line:#d9dee7;--accent:#2563eb;--teal:#0f766e;--warn:#fff7ed;--code:#0b1220}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--ink);line-height:1.65}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:280px;background:#111827;color:#dbe4f0;padding:24px 16px;overflow:auto}.sidebar h2{font-size:18px;color:#fff;margin:0 0 18px}.sidebar .module{font-size:12px;color:#94a3b8;text-transform:uppercase;margin:16px 8px 8px}.sidebar a{display:block;color:#cbd5e1;text-decoration:none;padding:8px 10px;border-radius:6px;font-size:14px}.sidebar a:hover{background:#1f2937;color:#fff}
+.main{margin-left:280px;max-width:1180px;padding:38px 54px 80px}h1{font-size:38px;line-height:1.15;margin:0 0 12px}h2{font-size:27px;margin-top:48px;border-bottom:1px solid var(--line);padding-bottom:8px}h3{font-size:20px;margin-top:30px}.lead{font-size:18px;color:var(--muted)}.tag{display:inline-block;background:#e8f0ff;color:#1d4ed8;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:700;margin-right:5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin:18px 0}.success{border-left:5px solid var(--teal)}.warning{background:var(--warn);border-left:5px solid #ea580c}
+table{width:100%;border-collapse:collapse;margin:18px 0}th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{background:#f1f5f9}
+pre{background:var(--code);color:#e5e7eb;padding:18px;border-radius:9px;overflow:auto;font-size:13px;line-height:1.5}code{font-family:Consolas,Monaco,monospace}
+.step{counter-increment:step;margin:16px 0;padding-left:44px;position:relative}.steps{counter-reset:step}.step:before{content:counter(step);position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;text-align:center;line-height:28px;font-weight:700}
+.diagram{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:20px;font-family:Consolas,monospace;white-space:pre;overflow:auto}
+.small{font-size:13px;color:var(--muted)}a{color:var(--accent)}.delete{color:#991b1b;background:#fee2e2;padding:2px 7px;border-radius:5px;font-weight:700}.keep{color:#065f46;background:#d1fae5;padding:2px 7px;border-radius:5px;font-weight:700}
+</style>
+</head>
+<body>
+<nav class="sidebar">
+<h2>AWS Glue Workshop</h2><div class="module">Module 06</div>
+<a href="#overview">Overview</a><a href="#carry">Carry Forward / Cleanup</a><a href="#architecture">Architecture</a>
+<a href="#concepts">Workflow Concepts</a><a href="#cfn">CloudFormation</a><a href="#deploy">Deploy</a>
+<a href="#run">Run Workflow</a><a href="#conditional">Conditional Trigger</a><a href="#schedule">Scheduled Trigger</a>
+<a href="#event">Event Trigger</a><a href="#monitor">Monitor</a><a href="#parameters">Passing Parameters</a>
+<a href="#troubleshooting">Troubleshooting</a><a href="#cleanup">Cleanup</a><a href="#next">Next Module</a>
+</nav>
+<main class="main">
+<h1>AWS Glue Workshop — Module 06</h1>
+<p class="lead">Workflow orchestration with AWS Glue Workflows and Triggers — turn the independent ETL jobs from Module 3 into a coordinated data pipeline.</p>
+<p><span class="tag">Workflow</span><span class="tag">Triggers</span><span class="tag">Conditional</span><span class="tag">Schedule</span><span class="tag">Event</span><span class="tag">CloudFormation</span></p>
+
+<section id="overview"><h2>1. Module Objectives</h2>
+<div class="card success"><strong>Goal:</strong> create a Glue Workflow that coordinates existing ETL jobs and teaches on-demand, conditional, scheduled and event-driven orchestration.</div>
+<ul>
+<li>Understand a Glue Workflow as a container for related jobs, crawlers and triggers.</li>
+<li>Create an on-demand start trigger.</li>
+<li>Create a conditional trigger that waits for job success.</li>
+<li>Run a multi-job dependency chain.</li>
+<li>Understand scheduled triggers and cron expressions.</li>
+<li>Understand EventBridge-based event triggers.</li>
+<li>Pass safe job arguments from a trigger.</li>
+<li>Monitor workflow runs as a graph.</li>
+<li>Deploy the base orchestration with CloudFormation.</li>
+<li>Clean up resources no longer needed from earlier modules.</li>
+</ul>
+<p>AWS describes workflows as a way to visualize and manage complex ETL activities involving multiple jobs, crawlers and triggers. citeturn0search1turn0search10</p>
+</section>
+
+<section id="carry"><h2>2. Carry Forward from Modules 1–5</h2>
+<table>
+<tr><th>Resource</th><th>Decision</th><th>Reason</th></tr>
+<tr><td>Module 1 S3 bucket</td><td><span class="keep">KEEP</span></td><td>ETL jobs continue to read/write workshop data.</td></tr>
+<tr><td><code>glue_demo_db</code></td><td><span class="keep">KEEP</span></td><td>Catalog metadata used by ETL jobs.</td></tr>
+<tr><td><code>AWSGlueWorkshopRole</code></td><td><span class="keep">KEEP</span></td><td>Runtime role for the existing ETL jobs.</td></tr>
+<tr><td>Module 3 S3 ETL job</td><td><span class="keep">KEEP</span></td><td>First job in the Module 6 dependency chain.</td></tr>
+<tr><td>Module 3 RDS ETL job</td><td><span class="keep">KEEP*</span></td><td>Second job in the dependency chain.</td></tr>
+<tr><td>Module 4 Visual ETL jobs</td><td><span class="keep">OPTIONAL KEEP</span></td><td>Can be added to a later workflow exercise.</td></tr>
+<tr><td>Module 5 notebook</td><td><span class="keep">OPTIONAL KEEP</span></td><td>Useful for development, but not required by the workflow.</td></tr>
+<tr><td>Module 2 RDS crawler</td><td><span class="delete">DELETE</span></td><td>Not required by this workflow because it orchestrates existing ETL jobs.</td></tr>
+<tr><td>Module 2 RDS/VPC/Glue Connection</td><td><span class="delete">OPTIONAL DELETE</span></td><td>Delete only if the PostgreSQL ETL job and all JDBC exercises are complete.</td></tr>
+</table>
+<div class="card warning"><strong>Important:</strong> the Module 6 CloudFormation stack does not recreate the Module 3 jobs. Deploy Module 3 first, or provide names of equivalent existing Glue jobs.</div>
+</section>
+
+<section id="architecture"><h2>3. Architecture</h2>
+<div class="diagram">
+                         Glue Workflow
+                    glue-module6-sales-workflow
+                              │
+                     ┌────────▼────────┐
+                     │  ON-DEMAND      │
+                     │  Start Trigger  │
+                     └────────┬────────┘
+                              │
+                              ▼
+                 ┌────────────────────────┐
+                 │ Module 3 S3 ETL Job    │
+                 │ glue-module3-s3-sales  │
+                 └───────────┬────────────┘
+                             │ SUCCEEDED
+                             ▼
+                 ┌────────────────────────┐
+                 │ CONDITIONAL TRIGGER    │
+                 │ after-s3               │
+                 └───────────┬────────────┘
+                             │
+                             ▼
+                 ┌────────────────────────┐
+                 │ Module 3 RDS ETL Job   │
+                 │ glue-module3-rds-to-   │
+                 │ s3-etl                  │
+                 └────────────────────────┘
+
+Optional later:
+Schedule → Start Trigger
+EventBridge Event → Event Trigger
+More successful jobs → additional conditional branches
+</div>
+<p>Glue triggers can be on-demand, scheduled, conditional or event based. Conditional triggers can wait for job completion states such as <code>SUCCEEDED</code>. citeturn0search0turn0search3</p>
+</section>
+
+<section id="concepts"><h2>4. Workflow and Trigger Concepts</h2>
+<table>
+<tr><th>Component</th><th>Purpose</th></tr>
+<tr><td>Workflow</td><td>Container and execution/monitoring boundary for related Glue jobs, crawlers and triggers.</td></tr>
+<tr><td>On-demand trigger</td><td>Manual entry point for a workflow.</td></tr>
+<tr><td>Conditional trigger</td><td>Starts downstream actions when predecessor conditions are met.</td></tr>
+<tr><td>Scheduled trigger</td><td>Starts jobs/crawlers according to a cron schedule.</td></tr>
+<tr><td>Event trigger</td><td>Starts actions from events, with optional batching.</td></tr>
+</table>
+<p>AWS recommends workflows for complex multi-job ETL operations rather than building increasingly complicated standalone trigger chains. citeturn0search7</p>
+</section>
+
+
+<section id="console">
+<h2>5. Create the Same Workflow Using the AWS Console</h2>
+
+<div class="card success">
+<strong>Console-first alternative:</strong> Everything created by the Module 6 CloudFormation template can also be created manually in the AWS Glue console. This is the recommended path for students who want to understand how workflows are assembled rather than simply deploying infrastructure.
+</div>
+
+<p>AWS's current workflow procedure is to create the workflow, add a start trigger, attach the first job/crawler, and then continue adding event/conditional triggers to build the graph. There is no separate "Save workflow" button after the graph is completed; adding the final trigger/action completes the workflow definition. citeturn0search1</p>
+
+<h3>5.1 Prerequisites</h3>
+<div class="steps">
+<div class="step">Make sure Module 3 has already been deployed and the jobs <code>glue-module3-s3-sales-etl</code> and <code>glue-module3-rds-to-s3-etl</code> exist.</div>
+<div class="step">Open the AWS Management Console.</div>
+<div class="step">Switch to the AWS Region where the previous Glue resources were created.</div>
+<div class="step">Open <strong>AWS Glue</strong>.</div>
+<div class="step">In the left navigation, under <strong>ETL</strong>, choose <strong>Workflows</strong>.</div>
+</div>
+
+<h3>5.2 Create the Workflow</h3>
+<div class="steps">
+<div class="step">On the Workflows page, choose <strong>Add workflow</strong>.</div>
+<div class="step">For <strong>Name</strong>, enter <code>glue-module6-sales-workflow</code>.</div>
+<div class="step">Optionally enter a description such as <code>Module 6 Glue ETL orchestration lab</code>.</div>
+<div class="step">Leave the default run properties empty for the first exercise.</div>
+<div class="step">Choose <strong>Add workflow</strong>.</div>
+<div class="step">Select <code>glue-module6-sales-workflow</code> from the workflow list.</div>
+<div class="step">Open the <strong>Graph</strong> tab.</div>
+</div>
+
+<p>AWS documents this as the first step of manually building a workflow. A workflow contains jobs, crawlers and triggers; the recommended maximum is 100 total jobs, crawlers and triggers in one workflow. citeturn0search1</p>
+
+<h3>5.3 Add the On-Demand Start Trigger</h3>
+<div class="steps">
+<div class="step">On the workflow Graph page, choose <strong>Add trigger</strong>.</div>
+<div class="step">Choose <strong>Add new</strong>.</div>
+<div class="step">For <strong>Trigger type</strong>, choose <strong>On demand</strong>.</div>
+<div class="step">For <strong>Name</strong>, enter <code>glue-module6-start</code>.</div>
+<div class="step">Choose <strong>Add</strong>.</div>
+<div class="step">A new trigger node appears with an <strong>Add node</strong> placeholder.</div>
+<div class="step">Select the <strong>Add node</strong> placeholder.</div>
+<div class="step">Choose <strong>Add jobs/crawlers to trigger</strong> if that option is shown.</div>
+<div class="step">Select <code>glue-module3-s3-sales-etl</code>.</div>
+<div class="step">Choose <strong>Add</strong>.</div>
+</div>
+
+<div class="card">
+<strong>Expected graph:</strong>
+<pre><code>glue-module6-start
+        │
+        ▼
+glue-module3-s3-sales-etl</code></pre>
+</div>
+
+<p>An on-demand trigger fires when activated manually. AWS's console documentation describes the same Add trigger → On demand flow. citeturn0search0turn0search1</p>
+
+<h3>5.4 Add the Conditional Trigger</h3>
+<div class="steps">
+<div class="step">On the workflow graph, select the <code>glue-module3-s3-sales-etl</code> job node.</div>
+<div class="step">Use the node's <strong>Add trigger</strong> / <strong>Add trigger placeholder</strong> option.</div>
+<div class="step">Choose <strong>Add new</strong>.</div>
+<div class="step">For <strong>Trigger type</strong>, choose <strong>Event</strong> / <strong>Job events</strong> depending on the current console wording.</div>
+<div class="step">Give it the name <code>glue-module6-after-s3</code>.</div>
+<div class="step">Configure the watched job as <code>glue-module3-s3-sales-etl</code>.</div>
+<div class="step">Set the completion condition to <strong>Succeeded</strong>.</div>
+<div class="step">Add <code>glue-module3-rds-to-s3-etl</code> as the action/job to start.</div>
+<div class="step">Enable the trigger when prompted.</div>
+</div>
+
+<p>A conditional/job-event trigger can watch a previous job for states such as <code>SUCCEEDED</code>, <code>FAILED</code> or other completion states. AWS's current console calls this a conditional trigger / job events trigger depending on the UI path. citeturn0search0turn0search8</p>
+
+<div class="card">
+<strong>Expected graph:</strong>
+<pre><code>glue-module6-start
+        │
+        ▼
+S3 ETL Job
+        │
+    SUCCEEDED
+        │
+        ▼
+Conditional Trigger
+        │
+        ▼
+RDS ETL Job</code></pre>
+</div>
+
+<h3>5.5 Verify the Graph</h3>
+<div class="steps">
+<div class="step">Confirm the first trigger is connected to the S3 ETL job.</div>
+<div class="step">Confirm the conditional trigger watches the S3 ETL job.</div>
+<div class="step">Confirm the conditional trigger starts the RDS ETL job.</div>
+<div class="step">Make sure there is no accidental direct connection from the start trigger to the RDS job.</div>
+<div class="step">Read the graph from left/top to right/bottom and explain the dependency to another student.</div>
+</div>
+
+<h3>5.6 Run the Workflow from the Console</h3>
+<div class="steps">
+<div class="step">Return to the <strong>Workflows</strong> list.</div>
+<div class="step">Select <code>glue-module6-sales-workflow</code>.</div>
+<div class="step">Choose <strong>Run</strong> / <strong>Start workflow run</strong>.</div>
+<div class="step">Confirm the run.</div>
+<div class="step">Open the workflow's <strong>Runs</strong> or run-history view.</div>
+<div class="step">Open the latest run graph.</div>
+<div class="step">Watch the S3 ETL job move from pending/running to <strong>SUCCEEDED</strong>.</div>
+<div class="step">After success, verify that the conditional trigger fires and starts the RDS ETL job.</div>
+<div class="step">Open the RDS job run and inspect its logs.</div>
+</div>
+
+<p>AWS documents that an on-demand workflow can be started from the Glue console and that the workflow run graph can be used to identify failed nodes. citeturn0search11</p>
+
+<h3>5.7 Demonstrate Failure Handling</h3>
+<div class="steps">
+<div class="step">Before running this exercise, make a controlled temporary failure in the S3 ETL job.</div>
+<div class="step">Start the workflow.</div>
+<div class="step">Observe that the S3 ETL job fails.</div>
+<div class="step">Inspect the workflow graph.</div>
+<div class="step">Confirm that the conditional trigger does <strong>not</strong> start the RDS ETL job.</div>
+<div class="step">Repair the S3 job.</div>
+<div class="step">Run the workflow again.</div>
+<div class="step">Confirm the S3 job succeeds and the downstream RDS job now starts.</div>
+</div>
+
+<div class="card warning">
+<strong>Teaching point:</strong> this is the key difference between simply running two jobs and orchestrating them. The workflow expresses a business/data dependency: <em>do not execute the downstream stage until the upstream stage succeeds.</em>
+</div>
+
+<h3>5.8 Create a Scheduled Start Trigger in the Console</h3>
+<p>For a second exercise, create a separate scheduled workflow or replace the on-demand start trigger with a schedule.</p>
+<div class="steps">
+<div class="step">Open the workflow graph.</div>
+<div class="step">Choose <strong>Add trigger</strong>.</div>
+<div class="step">Choose <strong>Add new</strong>.</div>
+<div class="step">Select <strong>Schedule</strong>.</div>
+<div class="step">Give it a name such as <code>glue-module6-schedule-test</code>.</div>
+<div class="step">Choose a low-frequency schedule for the classroom, such as every hour.</div>
+<div class="step">If the console provides a custom schedule option, inspect the generated cron expression.</div>
+<div class="step">Attach the S3 ETL job as the action.</div>
+<div class="step">For classroom safety, leave the schedule disabled until students are ready to test it.</div>
+</div>
+
+<p>AWS Glue scheduled triggers use cron expressions; the console supports predefined frequencies and a Custom option. citeturn0search1turn0search3</p>
+
+<div class="card warning">
+<strong>Cost/safety:</strong> a scheduled trigger can continue launching Glue jobs after the class ends. Always disable the trigger when the exercise is complete. AWS provides Enable/Disable trigger controls in the Glue console. citeturn0search6
+</div>
+
+<h3>5.9 Create an EventBridge Start Trigger in the Console</h3>
+<p>This is an optional advanced exercise. It demonstrates an event-driven workflow instead of a clock-driven workflow.</p>
+<div class="steps">
+<div class="step">Open the workflow Graph.</div>
+<div class="step">Choose <strong>Add trigger</strong> → <strong>Add new</strong>.</div>
+<div class="step">Select <strong>EventBridge event</strong>.</div>
+<div class="step">Give the trigger a name such as <code>glue-module6-s3-event-start</code>.</div>
+<div class="step">Configure the event source/pattern required by the exercise.</div>
+<div class="step">Optionally configure an event batch size and batch window.</div>
+<div class="step">Attach the first job to the trigger.</div>
+<div class="step">Create/enable the trigger.</div>
+<div class="step">Generate the corresponding event and observe the workflow start.</div>
+</div>
+
+<p>AWS Glue supports EventBridge events as workflow start triggers, including optional batching based on event count or a time window. A common pattern is starting a workflow when an S3 object arrives. citeturn0search7turn0search9</p>
+
+<h3>5.10 Compare Console and CloudFormation</h3>
+<table>
+<tr><th>Activity</th><th>Console</th><th>CloudFormation</th></tr>
+<tr><td>Create workflow</td><td>Workflows → Add workflow</td><td><code>AWS::Glue::Workflow</code></td></tr>
+<tr><td>On-demand trigger</td><td>Add trigger → On demand</td><td><code>AWS::Glue::Trigger</code> + <code>Type: ON_DEMAND</code></td></tr>
+<tr><td>Conditional trigger</td><td>Add trigger → Job events/Event</td><td><code>Type: CONDITIONAL</code> + <code>Predicate</code></td></tr>
+<tr><td>Scheduled trigger</td><td>Add trigger → Schedule</td><td><code>Type: SCHEDULED</code> + <code>Schedule</code></td></tr>
+<tr><td>EventBridge trigger</td><td>Add trigger → EventBridge event</td><td><code>Type: EVENT</code></td></tr>
+<tr><td>Attach job</td><td>Add jobs/crawlers to trigger</td><td><code>Actions: JobName</code></td></tr>
+<tr><td>Dependency</td><td>Job event / condition</td><td><code>Predicate.Conditions</code></td></tr>
+</table>
+
+<div class="card success">
+<strong>Student challenge:</strong> deploy the CloudFormation template first, delete the stack, and then rebuild the exact same workflow manually from the console without looking at the template. This makes an excellent end-of-module assessment.
+</div>
+</section>
+
+<section id="cfn"><h2>6. Module 6 CloudFormation Template</h2>
+<p>The template creates only the orchestration layer:</p>
+<ul><li>One <code>AWS::Glue::Workflow</code></li><li>One on-demand <code>AWS::Glue::Trigger</code></li><li>One conditional <code>AWS::Glue::Trigger</code></li></ul>
+<p>AWS CloudFormation directly supports both Workflow and Trigger resources. citeturn0search0turn0search1</p>
+<pre><code>AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Glue Workshop Module 06 - Workflow orchestration
+
+Parameters:
+  S3EtlJobName:
+    Type: String
+    Default: glue-module3-s3-sales-etl
+  RdsEtlJobName:
+    Type: String
+    Default: glue-module3-rds-to-s3-etl
+  WorkflowName:
+    Type: String
+    Default: glue-module6-sales-workflow
+  StartTriggerName:
+    Type: String
+    Default: glue-module6-start
+  AfterS3TriggerName:
+    Type: String
+    Default: glue-module6-after-s3
+
+Resources:
+  GlueWorkshopWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Name: !Ref WorkflowName
+      Description: Module 6 workflow
+      MaxConcurrentRuns: 1
+
+  StartTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Ref StartTriggerName
+      Type: ON_DEMAND
+      WorkflowName: !Ref GlueWorkshopWorkflow
+      Actions:
+        - JobName: !Ref S3EtlJobName
+
+  AfterS3Trigger:
+    Type: AWS::Glue::Trigger
+    DependsOn:
+      - StartTrigger
+    Properties:
+      Name: !Ref AfterS3TriggerName
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref GlueWorkshopWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref S3EtlJobName
+            State: SUCCEEDED
+      Actions:
+        - JobName: !Ref RdsEtlJobName
+</code></pre>
+</section>
+
+<section id="deploy"><h2>7. Deploy the Module 6 CloudFormation Stack</h2>
+<div class="steps">
+<div class="step">Deploy Module 3 first so the referenced ETL jobs exist.</div>
+<div class="step">Open CloudFormation → Create stack → With new resources.</div>
+<div class="step">Upload <code>aws-glue-module-06-workflow.yaml</code>.</div>
+<div class="step">Use the default workflow and job names if Modules 3 was deployed with the workshop defaults.</div>
+<div class="step">Create the stack.</div>
+<div class="step">Open AWS Glue → Workflows and find <code>glue-module6-sales-workflow</code>.</div>
+</div>
+<div class="card warning">The stack references existing jobs by name. CloudFormation does not import or manage those jobs; it only creates the workflow and triggers around them.</div>
+</section>
+
+<section id="run"><h2>8. Run the Workflow</h2>
+<div class="steps">
+<div class="step">Open the workflow graph.</div>
+<div class="step">Confirm the on-demand start trigger is present.</div>
+<div class="step">Start the workflow from the console.</div>
+<div class="step">The start trigger launches the S3 ETL job.</div>
+<div class="step">When the S3 job reaches <code>SUCCEEDED</code>, the conditional trigger fires.</div>
+<div class="step">The RDS ETL job starts.</div>
+<div class="step">Open workflow run details and inspect each node's state.</div>
+</div>
+<p>Dependent jobs are only started when their predecessor was started by a trigger, and dependency chains must descend from a single scheduled or on-demand trigger. citeturn0search3</p>
+</section>
+
+<section id="conditional"><h2>9. Conditional Trigger Exercise</h2>
+<p>Change the first job deliberately so that it fails, then observe that the downstream trigger does not start the RDS job.</p>
+<div class="steps">
+<div class="step">Temporarily introduce a controlled error in the Module 3 S3 job.</div>
+<div class="step">Start the workflow.</div>
+<div class="step">Observe the S3 job become <code>FAILED</code>.</div>
+<div class="step">Observe that the conditional trigger does not launch the RDS job.</div>
+<div class="step">Fix the S3 job.</div>
+<div class="step">Start a new workflow run.</div>
+<div class="step">Observe successful dependency propagation.</div>
+</div>
+</section>
+
+<section id="schedule"><h2>10. Scheduled Trigger Exercise</h2>
+<p>AWS Glue scheduled triggers use cron expressions. citeturn0search0turn0search4</p>
+<p>For a classroom exercise, create a scheduled trigger that starts the S3 ETL job every 30 minutes:</p>
+<pre><code>Type: SCHEDULED
+Schedule: cron(0/30 * * * ? *)
+StartOnCreation: false</code></pre>
+<div class="card warning"><strong>Cost control:</strong> keep <code>StartOnCreation: false</code> during training. Enable the schedule only while students are actively observing it.</div>
+</section>
+
+<section id="event"><h2>11. Event-Driven Trigger Exercise</h2>
+<p>AWS Glue supports event-based triggers and event batching. This is useful when a workflow should respond to arriving data rather than a fixed clock schedule. citeturn0search0turn0search9</p>
+<div class="steps">
+<div class="step">Create an event-based Glue trigger in the console.</div>
+<div class="step">Associate it with the workflow.</div>
+<div class="step">Configure the event source according to the current Glue console options.</div>
+<div class="step">Optionally configure an event batching condition.</div>
+<div class="step">Send/test the corresponding event.</div>
+<div class="step">Observe the workflow start.</div>
+</div>
+<p class="small">Keep this exercise conceptual unless the class also covers EventBridge in depth; the core Module 6 stack intentionally avoids creating additional event infrastructure.</p>
+</section>
+
+<section id="monitor"><h2>12. Monitor Workflow Runs</h2>
+<div class="steps">
+<div class="step">Open Glue → Workflows.</div>
+<div class="step">Select <code>glue-module6-sales-workflow</code>.</div>
+<div class="step">Open the graph view.</div>
+<div class="step">Inspect each trigger and job.</div>
+<div class="step">Open job run details for logs and execution metrics.</div>
+</div>
+<p>Glue workflows record execution progress and status across the workflow's components and expose a visual graph in the console. citeturn0search10</p>
+</section>
+
+<section id="parameters"><h2>13. Passing Job Arguments</h2>
+<p>Triggers can pass arguments to the jobs they start. AWS warns that job arguments may be logged, so secrets must not be passed as plaintext arguments. Use Glue Connections or Secrets Manager for credentials. citeturn0search5turn0search11</p>
+<pre><code>Actions:
+  - JobName: !Ref S3EtlJobName
+    Arguments:
+      --environment: workshop
+      --output-format: parquet
+</code></pre>
+<p>Use this mechanism for non-secret runtime configuration such as environment, partition date or output mode.</p>
+</section>
+
+<section id="troubleshooting"><h2>14. Troubleshooting</h2>
+<table>
+<tr><th>Problem</th><th>Likely cause</th><th>Resolution</th></tr>
+<tr><td>Workflow stack fails</td><td>Referenced job does not exist.</td><td>Deploy Module 3 first or provide the correct job names as parameters.</td></tr>
+<tr><td>Conditional trigger never fires</td><td>Predecessor was started manually instead of by the workflow trigger.</td><td>Start the workflow from its start trigger. Glue dependency chains require trigger-based execution.</td></tr>
+<tr><td>RDS job starts unexpectedly</td><td>Conditional trigger is active and predecessor succeeded.</td><td>Deactivate the trigger or delete the workflow after the exercise.</td></tr>
+<tr><td>Scheduled trigger keeps running</td><td>StartOnCreation/enabled schedule remains active.</td><td>Disable the trigger immediately after the class exercise.</td></tr>
+<tr><td>Job argument contains credentials</td><td>Secrets passed through trigger arguments.</td><td>Remove the secret and use Glue Connection/Secrets Manager.</td></tr>
+<tr><td>Workflow has too many concurrent runs</td><td>Multiple starts or schedule overlap.</td><td>Use <code>MaxConcurrentRuns: 1</code> and avoid overlapping schedules.</td></tr>
+</table>
+</section>
+
+<section id="cleanup"><h2>15. Cleanup</h2>
+<h3>Module 6</h3>
+<ul>
+<li>Delete the Module 6 CloudFormation stack when orchestration is no longer required.</li>
+<li>Disable scheduled/event triggers before leaving the lab.</li>
+<li>Delete any additional manually-created triggers.</li>
+</ul>
+<h3>Earlier resources to delete</h3>
+<ul>
+<li><span class="delete">DELETE</span> Module 2 RDS crawler if discovery is complete.</li>
+<li><span class="delete">DELETE</span> Module 4 Visual ETL jobs if the comparison exercise is complete.</li>
+<li><span class="delete">DELETE</span> Module 5 notebook if it is no longer needed.</li>
+<li><span class="delete">DELETE</span> Module 2 RDS/VPC/Glue Connection only after all PostgreSQL exercises are complete.</li>
+</ul>
+<h3>Keep</h3>
+<ul>
+<li>Module 1 S3 bucket and Data Catalog database.</li>
+<li>Module 3 ETL jobs while Module 6 is being taught.</li>
+<li><code>AWSGlueWorkshopRole</code>.</li>
+</ul>
+</section>
+
+<section id="next"><h2>16. Next Module</h2>
+<div class="card success"><strong>Module 7 — Glue Triggers & Advanced Event Orchestration</strong><br>
+Deep-dive into scheduled triggers, conditional branching, EventBridge events, batching, workflow parameters and more complex dependency graphs.</div>
+</section>
+<footer class="small"><p>AWS Glue workflows and triggers evolve over time. Use the current AWS console for exact UI labels and supported event options.</p></footer>
+</main></body></html>

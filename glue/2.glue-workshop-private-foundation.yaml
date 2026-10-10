@@ -1,0 +1,497 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  Shared private foundation for the AWS Glue, Hudi, Job Bookmark,
+  Glue Workflows, Athena, QuickSight and related workshop labs.
+  No NAT Gateway or Internet Gateway is created.
+
+Parameters:
+  PermissionsBoundaryArn:
+    Description: Optional IAM Permissions Boundary Policy ARN to attach to new IAM Roles
+    Type: String
+    Default: ""
+
+Conditions:
+  SetPermissionsBoundary: !Not
+    - !Equals
+      - !Ref PermissionsBoundaryArn
+      - ""
+
+Resources:
+
+  dmslabstudentvpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/24
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: glue-workshop-vpc
+
+  dmslabstudentsubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.0.0/26
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      VpcId: !Ref dmslabstudentvpc
+      Tags:
+        - Key: Name
+          Value: glue-private-subnet-a
+
+  dmslabstudentsubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.0.128/26
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      VpcId: !Ref dmslabstudentvpc
+      Tags:
+        - Key: Name
+          Value: glue-private-subnet-b
+
+  dmslabstudentdopt:
+    Type: AWS::EC2::DHCPOptions
+    Properties:
+      DomainName: ec2.internal
+      DomainNameServers:
+        - AmazonProvidedDNS
+
+  dmslabstudentrtable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref dmslabstudentvpc
+      Tags:
+        - Key: Network
+          Value: Private
+        - Key: Name
+          Value: GluePrivateRouteTable
+
+  subnetroute1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref dmslabstudentrtable1
+      SubnetId: !Ref dmslabstudentsubnet1
+
+  subnetroute3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref dmslabstudentrtable1
+      SubnetId: !Ref dmslabstudentsubnet2
+
+  dchpassoc1:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties:
+      VpcId: !Ref dmslabstudentvpc
+      DhcpOptionsId: !Ref dmslabstudentdopt
+
+  sgdefault:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for private Glue workshop resources
+      VpcId: !Ref dmslabstudentvpc
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  ingress1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgdefault
+      IpProtocol: "-1"
+      SourceSecurityGroupId: !Ref sgdefault
+
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref dmslabstudentrtable1
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref dmslabstudentvpc
+
+  DMSLabS3Bucket:
+    Type: AWS::S3::Bucket
+
+  S3BucketWorkgroupA:
+    Type: AWS::S3::Bucket
+
+  S3BucketWorkgroupB:
+    Type: AWS::S3::Bucket
+
+  GlueLabRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      PermissionsBoundary: !If
+        - SetPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Path: /service-role/
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+        - arn:aws:iam::aws:policy/AmazonKinesisFullAccess
+      Policies:
+        - PolicyName: WorkshopS3AndAssetsAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: WorkshopBucketAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt DMSLabS3Bucket.Arn
+                  - !Sub ${DMSLabS3Bucket.Arn}/*
+              - Sid: WorkshopAssetBucketList
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: arn:aws:s3:::ws-assets-prod-iad-r-iad-ed304a55c2ca1aee
+              - Sid: WorkshopAssetBucketRead
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: arn:aws:s3:::ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/*
+
+  DMSLabS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: GlueWorkshopS3Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource:
+              - !Sub ${DMSLabS3Bucket.Arn}/*
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - !GetAtt DMSLabS3Bucket.Arn
+      Roles:
+        - !Ref GlueLabRole
+
+  LakeFormationWorkflowRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      PermissionsBoundary: !If
+        - SetPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: DatalakeDataAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: Lakeformation
+                Effect: Allow
+                Action:
+                  - lakeformation:GetDataAccess
+                  - lakeformation:GrantPermissions
+                Resource: "*"
+        - PolicyName: DatalakePassRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: PassRolePermissions
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+        - arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess
+
+  BusinessAnalystUserPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for business analyst access to Athena Workgroup A
+      Path: /
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - athena:ListWorkGroups
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - s3:ListBucketMultipartUploads
+              - athena:StartQueryExecution
+              - athena:GetQueryResultsStream
+              - athena:GetQueryResults
+              - s3:CreateBucket
+              - s3:ListBucket
+              - athena:DeleteNamedQuery
+              - athena:GetNamedQuery
+              - athena:ListTagsForResource
+              - athena:ListQueryExecutions
+              - s3:ListMultipartUploadParts
+              - athena:ListNamedQueries
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectAcl
+              - athena:GetWorkGroup
+              - athena:CreateNamedQuery
+              - s3:AbortMultipartUpload
+              - athena:StopQueryExecution
+              - athena:GetQueryExecution
+              - athena:BatchGetNamedQuery
+              - s3:GetBucketLocation
+              - athena:BatchGetQueryExecution
+            Resource:
+              - !Sub arn:aws:s3:::${S3BucketWorkgroupA}
+              - !Sub arn:aws:s3:::${S3BucketWorkgroupA}/*
+              - !Sub arn:aws:s3:::${DMSLabS3Bucket}
+              - !Sub arn:aws:s3:::${DMSLabS3Bucket}/*
+              - !Sub arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/workgroupA
+          - Effect: Allow
+            Action:
+              - athena:GetQueryExecutions
+            Resource: !Sub arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/workgroupA
+          - Effect: Allow
+            Action:
+              - glue:Get*
+              - glue:GetTable
+            Resource:
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog/awsdatacatalog
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/ticketdata
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/ticketdata/parquet_sporting_event
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/ticketdata/parquet_sport_team
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/ticketdata/parquet_sport_location
+              - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/ticketdata/sporting_event_info
+
+  WorkgroupManagerUserPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for managing Athena Workgroup A and B
+      Path: /
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - athena:ListWorkGroups
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - s3:ListBucketMultipartUploads
+              - s3:CreateBucket
+              - s3:ListBucket
+              - s3:ListMultipartUploadParts
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectAcl
+              - s3:GetBucketLocation
+            Resource:
+              - !Sub arn:aws:s3:::${S3BucketWorkgroupA}
+              - !Sub arn:aws:s3:::${S3BucketWorkgroupA}/*
+              - !Sub arn:aws:s3:::${S3BucketWorkgroupB}
+              - !Sub arn:aws:s3:::${S3BucketWorkgroupB}/*
+              - !Sub arn:aws:s3:::${DMSLabS3Bucket}
+              - !Sub arn:aws:s3:::${DMSLabS3Bucket}/*
+          - Effect: Allow
+            Action:
+              - athena:DeleteWorkGroup
+              - athena:UpdateWorkGroup
+              - athena:GetWorkGroup
+              - athena:CreateWorkGroup
+              - athena:GetExecutionEngine
+              - athena:GetExecutionEngines
+              - athena:GetNamespace
+              - athena:GetCatalogs
+              - athena:GetNamespaces
+              - athena:GetTables
+              - athena:GetTable
+            Resource:
+              - !Sub arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/workgroupA
+              - !Sub arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/workgroupB
+
+  BusinessAnalystUser:
+    Type: AWS::IAM::User
+    Properties:
+      ManagedPolicyArns:
+        - !Ref BusinessAnalystUserPolicy
+      LoginProfile:
+        Password: Admin123!
+        PasswordResetRequired: true
+
+  WorkgroupManagerUser:
+    Type: AWS::IAM::User
+    Properties:
+      ManagedPolicyArns:
+        - !Ref WorkgroupManagerUserPolicy
+      LoginProfile:
+        Password: Admin123!
+        PasswordResetRequired: true
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      PermissionsBoundary: !If
+        - SetPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Path: /
+      Policies:
+        - PolicyName: S3BucketCleanupPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub arn:aws:s3:::${DMSLabS3Bucket}/*
+                  - !Sub arn:aws:s3:::${S3BucketWorkgroupA}/*
+                  - !Sub arn:aws:s3:::${S3BucketWorkgroupB}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${DMSLabS3Bucket}
+                  - !Sub arn:aws:s3:::${S3BucketWorkgroupA}
+                  - !Sub arn:aws:s3:::${S3BucketWorkgroupB}
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  S3BucketHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          s3 = boto3.resource("s3")
+
+          def handler(event, context):
+              try:
+                  bucket = s3.Bucket(event["ResourceProperties"]["Bucket"])
+                  if event["RequestType"] == "Delete":
+                      bucket.objects.delete()
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as exc:
+                  print(str(exc))
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+
+  EmptyDMSLabS3Bucket:
+    Type: Custom::EmptyS3Bucket
+    Properties:
+      ServiceToken: !GetAtt S3BucketHandler.Arn
+      Bucket: !Ref DMSLabS3Bucket
+
+  EmptyWorkgroupAS3Bucket:
+    Type: Custom::EmptyS3Bucket
+    Properties:
+      ServiceToken: !GetAtt S3BucketHandler.Arn
+      Bucket: !Ref S3BucketWorkgroupA
+
+  EmptyWorkgroupBS3Bucket:
+    Type: Custom::EmptyS3Bucket
+    Properties:
+      ServiceToken: !GetAtt S3BucketHandler.Arn
+      Bucket: !Ref S3BucketWorkgroupB
+
+Outputs:
+  GlueLabRole:
+    Description: Glue service role
+    Value: !Ref GlueLabRole
+    Export:
+      Name: GlueLabRole
+
+  BucketName:
+    Description: Primary S3 bucket for Glue workshop data and artifacts
+    Value: !Ref DMSLabS3Bucket
+    Export:
+      Name: BucketName
+
+  S3BucketWorkgroupA:
+    Description: S3 bucket for Athena Workgroup A query results
+    Value: !Ref S3BucketWorkgroupA
+    Export:
+      Name: S3BucketWorkgroupA
+
+  S3BucketWorkgroupB:
+    Description: S3 bucket for Athena Workgroup B query results
+    Value: !Ref S3BucketWorkgroupB
+    Export:
+      Name: S3BucketWorkgroupB
+
+  BusinessAnalystUser:
+    Description: Business analyst IAM user for Workgroup A
+    Value: !Ref BusinessAnalystUser
+    Export:
+      Name: BusinessAnalystUser
+
+  WorkgroupManagerUser:
+    Description: Workgroup manager IAM user for Workgroup A and B
+    Value: !Ref WorkgroupManagerUser
+    Export:
+      Name: WorkgroupManagerUser
+
+  LakeFormationRole:
+    Description: Lake Formation workflow IAM role
+    Value: !Ref LakeFormationWorkflowRole
+    Export:
+      Name: LakeFormationRole
+
+  SecurityGroupId:
+    Description: Security group for Glue/private workshop resources
+    Value: !Ref sgdefault
+    Export:
+      Name: SecurityGroupId
+
+  VPCId:
+    Description: Private workshop VPC ID
+    Value: !Ref dmslabstudentvpc
+    Export:
+      Name: VPCId
+
+  SubnetId:
+    Description: Private subnet ID for Glue/database connector demonstrations
+    Value: !Ref dmslabstudentsubnet1
+    Export:
+      Name: SubnetId

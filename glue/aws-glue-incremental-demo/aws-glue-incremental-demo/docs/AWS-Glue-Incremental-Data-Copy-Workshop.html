@@ -1,0 +1,69 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AWS Glue Incremental Data Copy Workshop</title><style>:root{--bg:#f6f7f9;--panel:#fff;--text:#17202a;--muted:#5f6b76;--border:#d9dee5;--accent:#146eb4;--code:#f1f3f5;--dark:#101820}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}header{background:var(--dark);color:#fff;padding:30px 40px}header h1{margin:0 0 8px;font-size:30px}header p{margin:0;color:#cbd5df}.layout{display:grid;grid-template-columns:260px minmax(0,900px);gap:30px;max-width:1250px;margin:auto}nav{position:sticky;top:0;height:100vh;padding:28px 10px 20px 0;overflow:auto}nav a{display:block;padding:8px 12px;color:#334e68;text-decoration:none;border-left:3px solid transparent}nav a:hover{border-left-color:var(--accent);background:#eaf3fa}main{padding:35px 0 80px}section{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:22px}h2{margin-top:0;border-bottom:1px solid var(--border);padding-bottom:10px}pre{background:var(--code);padding:15px;border-radius:8px;overflow:auto;font-size:13px}code{font-family:Consolas,monospace}.callout{border-left:4px solid var(--accent);padding:12px 16px;background:#eef6fc;margin:15px 0}.warn{border-left-color:#c97a00;background:#fff7e6}.success{border-left-color:#27854c;background:#eef9f1}table{border-collapse:collapse;width:100%;margin:15px 0}th,td{border:1px solid var(--border);padding:9px;text-align:left}th{background:#f0f3f6}.flow{font-family:Consolas,monospace;background:#101820;color:#fff;padding:20px;border-radius:8px;white-space:pre;overflow:auto}@media(max-width:850px){.layout{display:block;padding:0 15px}nav{position:relative;height:auto}main{padding-top:10px}}</style></head><body><header><h1>AWS Glue Incremental Data Copy Workshop</h1><p>Simulated incremental source → S3 → AWS Glue Job Bookmarks → Parquet → Athena</p></header><div class="layout"><nav><b>Workshop</b><a href="#objective">1. Objective</a><a href="#architecture">2. Architecture</a><a href="#resources">3. Resources</a><a href="#iam">4. IAM & Security</a><a href="#deploy">5. Deploy</a><a href="#initial">6. Initial Load</a><a href="#bookmark">7. Job Bookmark</a><a href="#generator">8. Generator</a><a href="#incremental">9. Incremental Run</a><a href="#update">10. INSERT vs UPDATE</a><a href="#athena">11. Athena</a><a href="#reset">12. Reset</a><a href="#cleanup">13. Cleanup</a><a href="#trouble">14. Troubleshooting</a></nav><main>
+<section id="objective"><h2>1. Objective</h2><p>This workshop demonstrates an incremental data-copy pipeline using AWS Glue. A Python simulator behaves like a source system and creates new CSV batches in Amazon S3. A Spark-based AWS Glue job reads the S3 source and uses Job Bookmarks so previously processed S3 input is not processed again.</p><div class="callout success"><b>Core lesson:</b> incremental ingestion and incremental business-record upsert are different problems. A Job Bookmark tracks processed input; it does not automatically merge changed business keys into a target.</div></section>
+<section id="architecture"><h2>2. Architecture</h2><div class="flow">INCREMENTAL DATA SIMULATOR
+          |
+          | batch CSV
+          v
++------------------------+
+| S3 /source/orders/     |
++-----------+------------+
+            |
+            v
++------------------------+
+| AWS Glue Spark Job     |
+| Job Bookmark           |
+| CSV -> Parquet         |
++-----------+------------+
+            |
+            v
++------------------------+
+| S3 /target/orders/     |
++-----------+------------+
+            |
+            v
+         Athena</div><p>The generator is deliberately separate from Glue. It simulates source-system arrivals. The Glue Spark job performs the incremental copy.</p></section>
+<section id="resources"><h2>3. Resources Created</h2><table><tr><th>Resource</th><th>Purpose</th></tr><tr><td>S3 bucket</td><td>Source data, scripts, target Parquet and Athena results.</td></tr><tr><td>IAM Glue service role</td><td>Glue service trust plus bucket-scoped access.</td></tr><tr><td>Glue database</td><td>Catalog namespace for the lab.</td></tr><tr><td>Glue Spark job</td><td>Bookmark-enabled S3-to-S3 incremental ETL.</td></tr><tr><td>Athena workgroup</td><td>Controlled query-result location.</td></tr><tr><td>Python generator</td><td>Simulates new source batches.</td></tr></table></section>
+<section id="iam"><h2>4. IAM & Security</h2><p>The CloudFormation template creates a Glue service role with the standard <code>AWSGlueServiceRole</code> managed policy and an inline policy scoped to the demonstration bucket. The bucket blocks public access and uses SSE-S3 encryption.</p><p>The role is assumed by <code>glue.amazonaws.com</code>. This follows AWS Glue's standard service-role model.</p><div class="callout warn"><b>Production note:</b> this is intentionally classroom-friendly. Production environments should further restrict permissions, use approved KMS keys where required, and separate operator/deployment permissions from runtime permissions.</div></section>
+<section id="deploy"><h2>5. Deploy</h2><h3>Recommended: helper script</h3><pre>cd aws-glue-incremental-demo
+./deploy.sh</pre><p>The helper creates the stack, discovers the bucket, uploads the Glue script, and uploads the first two sample batches.</p><h3>Manual option</h3><ol><li>Deploy <code>cloudformation/glue-incremental-demo.yaml</code> in CloudFormation.</li><li>Accept <code>CAPABILITY_NAMED_IAM</code>.</li><li>Copy the <code>BucketName</code> output.</li><li>Upload <code>scripts/glue_incremental_orders.py</code> to <code>s3://BUCKET/scripts/</code>.</li><li>Upload <code>batch-001.csv</code> and <code>batch-002.csv</code> to <code>s3://BUCKET/source/orders/</code>.</li></ol><div class="callout warn">CloudFormation creates the Glue job definition before the script object exists. Upload the script before starting the job.</div></section>
+<section id="initial"><h2>6. Initial Load</h2><p>The package contains two initial batches: 10 + 5 = 15 orders.</p><pre>s3://BUCKET/source/orders/
+  batch-001.csv
+  batch-002.csv</pre><ol><li>Open AWS Glue → ETL jobs.</li><li>Open <code>glue-incremental-demo-job</code>.</li><li>Run the job.</li><li>Open the run logs and observe the input count.</li></ol><p>Expected first execution: approximately 15 input records and 15 records written to the Parquet target.</p></section>
+<section id="bookmark"><h2>7. Job Bookmark</h2><p>The job is configured with:</p><pre>--job-bookmark-option=job-bookmark-enable</pre><p>The source transformation uses a stable <code>transformation_ctx="orders_source"</code>. The script also calls <code>job.init()</code> and <code>job.commit()</code>.</p><p>Conceptually:</p><pre>Run 1: batch-001 + batch-002 -> processed
+Run 2: old batches skipped; new batch-003 -> processed
+Run 3: old batches skipped; new batch-004 -> processed</pre><div class="callout">The bookmark is about <b>input processing state</b>. It is not an upsert engine.</div></section>
+<section id="generator"><h2>8. Simulated Incremental Data Generator</h2><p>The generator creates a fresh CSV object with a unique batch name and uploads it to the source prefix.</p><h3>Install</h3><pre>pip install boto3</pre><h3>Generate ten new records</h3><pre>python scripts/incremental_generator.py \
+  --bucket YOUR_BUCKET \
+  --batch 3 \
+  --records 10</pre><h3>Generate seven shipped orders</h3><pre>python scripts/incremental_generator.py \
+  --bucket YOUR_BUCKET \
+  --batch 4 \
+  --records 7 \
+  --status SHIPPED</pre><p>The generated object will look like <code>s3://YOUR_BUCKET/source/orders/batch-003.csv</code>.</p></section>
+<section id="incremental"><h2>9. Incremental Run</h2><table><tr><th>Run</th><th>Available new data</th><th>Expected result</th></tr><tr><td>1</td><td>batch-001 + batch-002</td><td>Initial load, 15 rows</td></tr><tr><td>2</td><td>batch-003</td><td>Only new batch processed</td></tr><tr><td>3</td><td>batch-004</td><td>Only new batch processed</td></tr><tr><td>4</td><td>Nothing new</td><td>No newly eligible input</td></tr></table><p><b>Classroom trick:</b> run the Glue job twice without generating another file. Then generate a new batch and run again. This makes the incremental behavior easy to see.</p></section>
+<section id="update"><h2>10. INSERT vs UPDATE</h2><p>The file <code>batch-003-update-demo.csv</code> intentionally contains existing business keys:</p><pre>1002  COMPLETED -> CANCELLED
+1003  SHIPPED   -> DELIVERED
+1016  NEW       -> INSERT
+1017  NEW       -> INSERT</pre><p>If this file is newly discovered by the bookmark, Glue can ingest all four records. However, this demonstration job uses append mode, so 1002 and 1003 do not replace older target records automatically.</p><div class="callout warn"><b>Key teaching point:</b> Bookmark = “have I processed this input?”; Upsert = “what should happen to this business key in the target?”</div><p>For a production-style upsert extension, use a table/storage technology and pattern that supports MERGE semantics, such as Apache Iceberg/Hudi or a database MERGE workflow.</p></section>
+<section id="athena"><h2>11. Athena Validation</h2><p>Create an external table over the Parquet target:</p><pre>CREATE EXTERNAL TABLE IF NOT EXISTS orders_incremental (
+  order_id string,
+  customer_id string,
+  product_id string,
+  quantity int,
+  amount decimal(18,2),
+  status string,
+  last_updated timestamp,
+  ingestion_run string
+)
+STORED AS PARQUET
+LOCATION 's3://YOUR_BUCKET/target/orders/';</pre><h3>Queries</h3><pre>SELECT count(*) AS total_rows
+FROM orders_incremental;</pre><pre>SELECT status, count(*) AS orders
+FROM orders_incremental
+GROUP BY status
+ORDER BY orders DESC;</pre><pre>SELECT * FROM orders_incremental
+ORDER BY last_updated DESC LIMIT 20;</pre></section>
+<section id="reset"><h2>12. Reset Bookmark</h2><p>For teaching, reset the Glue job bookmark and run the job again. Previously processed input can become eligible again.</p><div class="callout warn">Because this lab target is append-only, replaying input can create duplicate records. This is intentional: it demonstrates why production pipelines need idempotent target design, deduplication or MERGE logic.</div></section>
+<section id="cleanup"><h2>13. Cleanup</h2><pre>aws s3 rm s3://YOUR_BUCKET --recursive</pre><p>Then delete the CloudFormation stack. The stack removes the S3 bucket, IAM role, Glue job, Glue database and Athena workgroup after the bucket has been emptied.</p></section>
+<section id="trouble"><h2>14. Troubleshooting</h2><h3>AccessDenied</h3><p>Check the CloudFormation-created Glue role and the bucket policy. Confirm the job script and data are in the expected bucket.</p><h3>Second run reads old files</h3><ul><li>Confirm bookmark is enabled.</li><li>Use the same Glue job name between runs.</li><li>Keep <code>transformation_ctx="orders_source"</code> unchanged.</li><li>Ensure <code>job.init()</code> and <code>job.commit()</code> are present.</li></ul><h3>Duplicates after bookmark reset</h3><p>Expected with append mode. Bookmark state does not make the target idempotent.</p><h3>Why not Python Shell for the ETL?</h3><p>The simulator is ordinary Python, but the ETL is a Glue Spark job because Glue Python Shell jobs do not support Job Bookmarks.</p></section>
+<section><h2>Recommended classroom sequence</h2><ol><li>Deploy infrastructure.</li><li>Show S3 source and target prefixes.</li><li>Run initial load.</li><li>Query target with Athena.</li><li>Explain bookmark state.</li><li>Generate a new batch.</li><li>Run Glue again and inspect logs.</li><li>Generate another batch.</li><li>Run again.</li><li>Demonstrate update records and explain bookmark vs upsert.</li><li>Reset bookmark and explain replay/idempotency.</li></ol></section>
+</main></div></body></html>

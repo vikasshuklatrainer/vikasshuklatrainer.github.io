@@ -1,0 +1,405 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  S3 -> AWS DMS -> RDS PostgreSQL migration environment.
+  Creates VPC, public subnets, IGW, route table, security groups, S3 bucket,
+  RDS PostgreSQL (publicly accessible), DMS replication instance, endpoints and a task.
+  All resources are named with the prefix you supply.
+
+# ---------------------------------------------------------------------------
+# Deploy with: --capabilities CAPABILITY_NAMED_IAM
+# ---------------------------------------------------------------------------
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Description: Prefix applied to every resource name (lowercase letters, digits, hyphens).
+    AllowedPattern: "^[a-z][a-z0-9-]{1,19}$"
+    ConstraintDescription: 2-20 chars, lowercase, must start with a letter; only a-z, 0-9 and hyphens.
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.0.2.0/24
+
+  DBName:
+    Type: String
+    Default: appdb
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9_]{0,62}$"
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+
+  MigrationType:
+    Type: String
+    Default: full-load
+    AllowedValues: [full-load, full-load-and-cdc]
+  S3SourceFolder:
+    Type: String
+    Default: data
+    Description: Folder in the bucket that holds schema_name/table_name/LOAD00000001.csv files.
+  CreateDmsVpcRole:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      DMS needs an IAM role named dms-vpc-role in the account. Set to true only if
+      it does NOT already exist (the stack creation fails if it does).
+
+Conditions:
+  CreateVpcRole: !Equals [!Ref CreateDmsVpcRole, "true"]
+  UseExistingVpcRole: !Equals [!Ref CreateDmsVpcRole, "false"]
+
+Resources:
+  # ------------------------------ Networking ------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-igw"
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-public-subnet-1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-public-subnet-2"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-public-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  Subnet1RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  Subnet2RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ----------------------------- Security groups --------------------------
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ResourcePrefix}-rds-sg"
+      GroupDescription: RDS PostgreSQL - open to all networks on 5432 (0.0.0.0/0)
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+          Description: PostgreSQL from anywhere
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-rds-sg"
+
+  DmsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ResourcePrefix}-dms-sg"
+      GroupDescription: DMS replication instance (outbound only)
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-dms-sg"
+
+  # --------------------------------- S3 -----------------------------------
+  SourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ResourcePrefix}-dms-source-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-dms-source"
+
+  # --------------------------------- IAM ----------------------------------
+  DmsS3AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-dms-s3-access-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dms.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${ResourcePrefix}-dms-s3-read"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "${SourceBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt SourceBucket.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-dms-s3-access-role"
+
+  DmsVpcRole:
+    Type: AWS::IAM::Role
+    Condition: CreateVpcRole
+    Properties:
+      RoleName: dms-vpc-role # fixed name required by DMS
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dms.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonDMSVPCManagementRole"
+
+  # --------------------------------- RDS ----------------------------------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub "${ResourcePrefix}-db-subnet-group"
+      DBSubnetGroupDescription: Public subnets for RDS PostgreSQL
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-db-subnet-group"
+
+  PostgresInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub "${ResourcePrefix}-postgres"
+      Engine: postgres
+      EngineVersion: "16"
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      DBName: !Ref DBName
+      MasterUsername: adminuser
+      MasterUserPassword: admin123434
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroup
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeletionProtection: false
+      Port: "5432"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-postgres"
+
+  # --------------------------------- DMS ----------------------------------
+  # Used when this stack creates dms-vpc-role (waits for the role first)
+  DmsSubnetGroupWithRole:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    Condition: CreateVpcRole
+    DependsOn: DmsVpcRole
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub "${ResourcePrefix}-dms-subnet-group"
+      ReplicationSubnetGroupDescription: !Sub "${ResourcePrefix} DMS subnet group"
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-dms-subnet-group"
+
+  # Used when dms-vpc-role already exists in the account
+  DmsSubnetGroupExistingRole:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    Condition: UseExistingVpcRole
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub "${ResourcePrefix}-dms-subnet-group"
+      ReplicationSubnetGroupDescription: !Sub "${ResourcePrefix} DMS subnet group"
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-dms-subnet-group"
+
+  DmsReplicationInstance:
+    Type: AWS::DMS::ReplicationInstance
+    DependsOn: PublicRoute
+    Properties:
+      ReplicationInstanceIdentifier: !Sub "${ResourcePrefix}-dms-instance"
+      ReplicationInstanceClass: dms.t3.medium
+      AllocatedStorage: 20
+      ReplicationSubnetGroupIdentifier: !If
+        - CreateVpcRole
+        - !Ref DmsSubnetGroupWithRole
+        - !Ref DmsSubnetGroupExistingRole
+      VpcSecurityGroupIds:
+        - !Ref DmsSecurityGroup
+      PubliclyAccessible: true
+      MultiAZ: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-dms-instance"
+
+  S3SourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub "${ResourcePrefix}-s3-source"
+      EndpointType: source
+      EngineName: s3
+      S3Settings:
+        BucketName: !Ref SourceBucket
+        BucketFolder: !Ref S3SourceFolder
+        ServiceAccessRoleArn: !GetAtt DmsS3AccessRole.Arn
+        CsvDelimiter: ","
+        CsvRowDelimiter: "\r\n"
+        DataFormat: csv
+        IgnoreHeaderRows: 1
+        # SAMPLE definition - replace with your own tables/columns.
+        # Matching file: <bucket>/<S3SourceFolder>/public/employees/LOAD00000001.csv
+        ExternalTableDefinition: |
+          {
+            "TableCount": "1",
+            "Tables": [
+              {
+                "TableName": "employees",
+                "TablePath": "public/employees/",
+                "TableOwner": "public",
+                "TableColumns": [
+                  { "ColumnName": "id", "ColumnType": "INT8", "ColumnNullable": "false", "ColumnIsPk": "true" },
+                  { "ColumnName": "name", "ColumnType": "STRING", "ColumnLength": "100" },
+                  { "ColumnName": "salary", "ColumnType": "NUMERIC", "ColumnPrecision": "10", "ColumnScale": "2" },
+                  { "ColumnName": "hired_on", "ColumnType": "DATE" }
+                ],
+                "TableColumnsTotal": "4"
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-s3-source"
+
+  PostgresTargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub "${ResourcePrefix}-postgres-target"
+      EndpointType: target
+      EngineName: postgres
+      ServerName: !GetAtt PostgresInstance.Endpoint.Address
+      Port: 5432
+      DatabaseName: !Ref DBName
+      Username: adminuser
+      Password: admin1234
+      SslMode: require
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-postgres-target"
+
+  MigrationTask:
+    Type: AWS::DMS::ReplicationTask
+    Properties:
+      ReplicationTaskIdentifier: !Sub "${ResourcePrefix}-s3-to-postgres-task"
+      MigrationType: !Ref MigrationType
+      ReplicationInstanceArn: !Ref DmsReplicationInstance
+      SourceEndpointArn: !Ref S3SourceEndpoint
+      TargetEndpointArn: !Ref PostgresTargetEndpoint
+      TableMappings: |
+        {
+          "rules": [
+            {
+              "rule-type": "selection",
+              "rule-id": "1",
+              "rule-name": "include-all-public",
+              "object-locator": { "schema-name": "public", "table-name": "%" },
+              "rule-action": "include"
+            }
+          ]
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-s3-to-postgres-task"
+
+Outputs:
+  RdsEndpoint:
+    Description: RDS PostgreSQL endpoint (publicly reachable)
+    Value: !GetAtt PostgresInstance.Endpoint.Address
+  RdsPort:
+    Value: !GetAtt PostgresInstance.Endpoint.Port
+  PsqlCommand:
+    Description: Connect command
+    Value: !Sub "psql -h ${PostgresInstance.Endpoint.Address} -p 5432 -U adminuser -d ${DBName}"
+  SourceBucketName:
+    Value: !Ref SourceBucket
+  S3UploadExample:
+    Description: Where DMS expects the CSV files (matches the sample table definition)
+    Value: !Sub "s3://${SourceBucket}/${S3SourceFolder}/public/employees/LOAD00000001.csv"
+  DmsReplicationTaskArn:
+    Description: Start this task from the DMS console or CLI after uploading files
+    Value: !Ref MigrationTask
+  VpcId:
+    Value: !Ref VPC

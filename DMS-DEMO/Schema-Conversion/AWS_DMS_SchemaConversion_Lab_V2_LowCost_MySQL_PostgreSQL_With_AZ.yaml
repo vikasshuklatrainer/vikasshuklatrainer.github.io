@@ -1,0 +1,586 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Low-cost AWS DMS Schema Conversion Lab V2 - MySQL to PostgreSQL.
+  Creates two small public RDS databases, public subnets, DMS Schema Conversion
+  instance profile, Data Providers, Secrets Manager secrets, S3 conversion bucket,
+  IAM roles, and a DMS Migration Project. Lab use only.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: dms-sc-v2
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9-]*$'
+    Description: Prefix used for resource names.
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    Default: LabDbPwd123!
+    AllowedPattern: '^[a-zA-Z0-9!@#$%^&*()_+=-]+$'
+    Description: >
+      Password used for both RDS master accounts. Do not use this default
+      password outside a temporary lab. Avoid /, @, ", and spaces.
+
+  MySQLInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues:
+      - db.t4g.micro
+      - db.t3.micro
+    Description: Small RDS MySQL instance class.
+
+  PostgreSQLInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues:
+      - db.t4g.micro
+      - db.t3.micro
+    Description: Small RDS PostgreSQL instance class.
+
+  # LAB ONLY: deliberately open for home connectivity.
+  # Production should replace this with the learner's public IP/32.
+  AllowedCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: >
+      CIDR allowed to reach both databases. 0.0.0.0/0 is intentionally
+      configured for this home-access lab and is NOT recommended for production.
+
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.20.1.0/24
+
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.20.2.0/24
+
+  AvailabilityZone1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: First Availability Zone.
+
+  AvailabilityZone2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Second Availability Zone.
+
+Resources:
+
+  # ------------------------------------------------------------
+  # VPC - two public subnets, no NAT Gateway to minimize cost
+  # ------------------------------------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-vpc'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-igw'
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Ref AvailabilityZone1
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-public-a'
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Ref AvailabilityZone2
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-public-b'
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-public-rt'
+
+  DefaultInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ------------------------------------------------------------
+  # Security Group - intentionally open for the lab
+  # ------------------------------------------------------------
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName} public lab DB access'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: !Ref AllowedCidr
+          Description: MySQL from lab/home
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Ref AllowedCidr
+          Description: PostgreSQL from lab/home
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-db-sg'
+
+  # ------------------------------------------------------------
+  # RDS subnet group
+  # ------------------------------------------------------------
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub '${ProjectName} RDS public subnet group'
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-rds-subnets'
+
+  # ------------------------------------------------------------
+  # MySQL - low-cost lab instance
+  # ------------------------------------------------------------
+  MySQL:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub '${ProjectName}-mysql'
+      Engine: mysql
+      DBInstanceClass: !Ref MySQLInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp3
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeleteAutomatedBackups: true
+      CopyTagsToSnapshot: false
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+      DBName: saleslab
+      MasterUsername: dmsadmin
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-mysql'
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # PostgreSQL - low-cost lab instance
+  # ------------------------------------------------------------
+  PostgreSQL:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub '${ProjectName}-postgres'
+      Engine: postgres
+      DBInstanceClass: !Ref PostgreSQLInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp3
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeleteAutomatedBackups: true
+      CopyTagsToSnapshot: false
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+      DBName: saleslab_pg
+      MasterUsername: dmsadmin
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-postgres'
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # Secrets Manager
+  # DMS requires JSON with username/password/port/host.
+  # ------------------------------------------------------------
+  MySQLSecret:
+    Type: AWS::SecretsManager::Secret
+    DependsOn: MySQL
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Name: !Sub '${ProjectName}/mysql-secret'
+      Description: !Sub 'DMS Schema Conversion MySQL credentials for ${ProjectName}'
+      SecretString: !Sub |
+        {
+          "username": "dmsadmin",
+          "password": "${DBPassword}",
+          "port": "3306",
+          "host": "${MySQL.Endpoint.Address}"
+        }
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  PostgreSQLSecret:
+    Type: AWS::SecretsManager::Secret
+    DependsOn: PostgreSQL
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Name: !Sub '${ProjectName}/postgres-secret'
+      Description: !Sub 'DMS Schema Conversion PostgreSQL credentials for ${ProjectName}'
+      SecretString: !Sub |
+        {
+          "username": "dmsadmin",
+          "password": "${DBPassword}",
+          "port": "5432",
+          "host": "${PostgreSQL.Endpoint.Address}"
+        }
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # IAM role used by the DMS migration project to read secrets
+  # ------------------------------------------------------------
+  DMSSecretsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-dms-secrets-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dms.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: ReadDMSLabSecrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref MySQLSecret
+                  - !Ref PostgreSQLSecret
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # S3 bucket + role for Schema Conversion artifacts
+  # ------------------------------------------------------------
+  SchemaConversionBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteLabArtifacts
+            Status: Enabled
+            ExpirationInDays: 7
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  SchemaConversionS3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-sc-s3-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dms.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: DMSchemaConversionS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt SchemaConversionBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${SchemaConversionBucket.Arn}/*'
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # DMS VPC/subnet group for the Schema Conversion instance profile
+  # ------------------------------------------------------------
+  DMSSubnetGroup:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    DependsOn:
+      - DMSVPCRole
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub '${ProjectName}-dms-subnets'
+      ReplicationSubnetGroupDescription: !Sub '${ProjectName} DMS Schema Conversion subnet group'
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # DMS may require this legacy service-linked-style role when a
+  # replication subnet group is created through CloudFormation.
+  DMSVPCRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-dms-vpc-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dms.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # Schema Conversion instance profile
+  # ------------------------------------------------------------
+  SchemaConversionInstanceProfile:
+    Type: AWS::DMS::InstanceProfile
+    DependsOn:
+      - DMSSubnetGroup
+    Properties:
+      InstanceProfileIdentifier: !Sub '${ProjectName}-sc-profile'
+      InstanceProfileName: !Sub '${ProjectName}-sc-profile'
+      Description: !Sub '${ProjectName} DMS Schema Conversion instance profile'
+      NetworkType: IPV4
+      PubliclyAccessible: true
+      SubnetGroupIdentifier: !Ref DMSSubnetGroup
+      VpcSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # Source Data Provider - MySQL
+  # ------------------------------------------------------------
+  MySQLDataProvider:
+    Type: AWS::DMS::DataProvider
+    DependsOn:
+      - MySQL
+    Properties:
+      DataProviderIdentifier: !Sub '${ProjectName}-mysql-source'
+      DataProviderName: !Sub '${ProjectName}-mysql-source'
+      Description: mysql-source-lab
+      Engine: mysql
+      ExactSettings: true
+      Settings:
+        MySqlSettings:
+          ServerName: !GetAtt MySQL.Endpoint.Address
+          Port: 3306
+          SslMode: none
+
+  # ------------------------------------------------------------
+  # Target Data Provider - PostgreSQL
+  # ------------------------------------------------------------
+  PostgreSQLDataProvider:
+    Type: AWS::DMS::DataProvider
+    DependsOn:
+      - PostgreSQL
+    Properties:
+      DataProviderIdentifier: !Sub '${ProjectName}-postgres-target'
+      DataProviderName: !Sub '${ProjectName}-postgres-target'
+      Description: postgres-target-lab
+      Engine: postgres
+      ExactSettings: true
+      Settings:
+        PostgreSqlSettings:
+          ServerName: !GetAtt PostgreSQL.Endpoint.Address
+          Port: 5432
+          DatabaseName: saleslab_pg
+          SslMode: none
+
+  # ------------------------------------------------------------
+  # DMS Migration Project
+  # ------------------------------------------------------------
+  MigrationProject:
+    Type: AWS::DMS::MigrationProject
+    DependsOn:
+      - SchemaConversionInstanceProfile
+      - MySQLDataProvider
+      - PostgreSQLDataProvider
+      - MySQLSecret
+      - PostgreSQLSecret
+      - DMSSecretsRole
+      - SchemaConversionS3Role
+    Properties:
+      MigrationProjectIdentifier: !Sub '${ProjectName}-project'
+      MigrationProjectName: !Sub '${ProjectName}-project'
+      Description: !Sub '${ProjectName} MySQL to PostgreSQL schema conversion'
+      InstanceProfileIdentifier: !Sub '${ProjectName}-sc-profile'
+      SourceDataProviderDescriptors:
+        - DataProviderIdentifier: !Ref MySQLDataProvider
+          SecretsManagerSecretId: !Ref MySQLSecret
+          SecretsManagerAccessRoleArn: !GetAtt DMSSecretsRole.Arn
+      TargetDataProviderDescriptors:
+        - DataProviderIdentifier: !Ref PostgreSQLDataProvider
+          SecretsManagerSecretId: !Ref PostgreSQLSecret
+          SecretsManagerAccessRoleArn: !GetAtt DMSSecretsRole.Arn
+      SchemaConversionApplicationAttributes:
+        S3BucketPath: !Sub 's3://${SchemaConversionBucket}'
+        S3BucketRoleArn: !GetAtt SchemaConversionS3Role.Arn
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+        - Key: Source
+          Value: MySQL
+        - Key: Target
+          Value: PostgreSQL
+
+Outputs:
+
+  VpcId:
+    Description: Lab VPC
+    Value: !Ref VPC
+
+  DatabaseSecurityGroupId:
+    Description: Security group allowing MySQL 3306 and PostgreSQL 5432 from AllowedCidr
+    Value: !GetAtt DatabaseSecurityGroup.GroupId
+
+  MySQLEndpoint:
+    Description: Public MySQL endpoint
+    Value: !GetAtt MySQL.Endpoint.Address
+
+  MySQLPort:
+    Description: MySQL port
+    Value: !GetAtt MySQL.Endpoint.Port
+
+  MySQLDatabase:
+    Description: MySQL database name
+    Value: saleslab
+
+  MySQLConnectionExample:
+    Description: Example MySQL client connection
+    Value: !Sub 'mysql -h ${MySQL.Endpoint.Address} -P 3306 -u dmsadmin -p saleslab'
+
+  PostgreSQLEndpoint:
+    Description: Public PostgreSQL endpoint
+    Value: !GetAtt PostgreSQL.Endpoint.Address
+
+  PostgreSQLPort:
+    Description: PostgreSQL port
+    Value: !GetAtt PostgreSQL.Endpoint.Port
+
+  PostgreSQLDatabase:
+    Description: PostgreSQL database name
+    Value: saleslab_pg
+
+  PostgreSQLConnectionExample:
+    Description: Example PostgreSQL client connection
+    Value: !Sub 'psql -h ${PostgreSQL.Endpoint.Address} -p 5432 -U dmsadmin -d saleslab_pg'
+
+  MySQLSecretArn:
+    Description: MySQL Secrets Manager ARN
+    Value: !Ref MySQLSecret
+
+  PostgreSQLSecretArn:
+    Description: PostgreSQL Secrets Manager ARN
+    Value: !Ref PostgreSQLSecret
+
+  DMSInstanceProfile:
+    Description: DMS Schema Conversion instance profile
+    Value: !Ref SchemaConversionInstanceProfile
+
+  MySQLDataProvider:
+    Description: DMS MySQL source Data Provider
+    Value: !Ref MySQLDataProvider
+
+  PostgreSQLDataProvider:
+    Description: DMS PostgreSQL target Data Provider
+    Value: !Ref PostgreSQLDataProvider
+
+  MigrationProject:
+    Description: DMS Schema Conversion migration project
+    Value: !Ref MigrationProject
+
+  SchemaConversionBucket:
+    Description: S3 bucket used for DMS Schema Conversion artifacts
+    Value: !Ref SchemaConversionBucket

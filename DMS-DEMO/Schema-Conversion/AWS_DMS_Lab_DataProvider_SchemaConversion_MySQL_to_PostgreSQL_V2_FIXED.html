@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS DMS Schema Conversion Lab V2 - MySQL to PostgreSQL</title>
+<style>
+  :root{
+    --bg:#f5f7fb; --card:#ffffff; --ink:#172033; --muted:#5d6b82;
+    --blue:#2563eb; --blue2:#dbeafe; --green:#047857; --green2:#d1fae5;
+    --orange:#b45309; --orange2:#fef3c7; --red:#b91c1c; --red2:#fee2e2;
+    --purple:#6d28d9; --purple2:#ede9fe; --line:#d9e0ea; --code:#101827;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Segoe UI,Arial,sans-serif;line-height:1.55}
+  .wrap{max-width:1180px;margin:auto;padding:28px}
+  header{background:linear-gradient(135deg,#102a56,#2563eb);color:white;border-radius:18px;padding:34px 38px;margin-bottom:24px}
+  header h1{margin:0 0 10px;font-size:32px}
+  header p{margin:6px 0;opacity:.94}
+  .badge{display:inline-block;background:#ffffff22;border:1px solid #ffffff55;padding:5px 10px;border-radius:999px;font-size:12px;margin:3px 5px 0 0}
+  section,.card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:24px;margin:18px 0;box-shadow:0 2px 8px #0f172a0b}
+  h2{font-size:24px;margin-top:0;color:#102a56}
+  h3{font-size:18px;color:#173b72;margin-top:26px}
+  h4{margin-bottom:6px}
+  .note,.tip,.warn,.success{padding:14px 16px;border-radius:10px;margin:14px 0;border-left:5px solid}
+  .note{background:#eff6ff;border-color:var(--blue)}
+  .tip{background:var(--green2);border-color:var(--green)}
+  .warn{background:var(--orange2);border-color:var(--orange)}
+  .success{background:#ecfdf5;border-color:var(--green)}
+  table{width:100%;border-collapse:collapse;margin:14px 0}
+  th,td{border:1px solid var(--line);padding:10px;vertical-align:top}
+  th{background:#eef3f9;text-align:left}
+  pre{background:var(--code);color:#e5edf8;padding:17px;border-radius:10px;overflow:auto;font-size:13px;line-height:1.48}
+  code{font-family:Consolas,Monaco,monospace}
+  .inline{background:#eef2f7;border-radius:4px;padding:2px 5px;font-family:Consolas,monospace}
+  .step{display:grid;grid-template-columns:55px 1fr;gap:14px;margin:18px 0}
+  .num{width:42px;height:42px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .step h4{margin:0 0 5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .mini{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fbfcfe}
+  .check{font-size:15px;margin:7px 0}
+  .check::before{content:"☐";margin-right:9px;color:var(--blue);font-weight:bold}
+  .pill{display:inline-block;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:600}
+  .p-blue{background:var(--blue2);color:#1d4ed8}.p-green{background:var(--green2);color:#047857}
+  .p-orange{background:var(--orange2);color:#92400e}.p-purple{background:var(--purple2);color:#6d28d9}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .flow{background:#f8fafc;border:1px dashed #aeb9ca;border-radius:12px;padding:14px}
+  .arrow{text-align:center;font-size:25px;color:#2563eb;margin:2px}
+  .small{font-size:13px;color:var(--muted)}
+  .task{background:#faf5ff;border:1px solid #ddd6fe;border-radius:12px;padding:17px;margin:12px 0}
+  .answer{background:#f8fafc;border-left:4px solid #64748b;padding:12px 14px;margin-top:8px}
+  details{margin:10px 0;border:1px solid var(--line);border-radius:9px;padding:10px 13px;background:#fff}
+  summary{cursor:pointer;font-weight:650}
+  .svgbox{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px;margin:15px 0;overflow:auto}
+  .footer{font-size:12px;color:var(--muted);text-align:center;padding:24px}
+  @media(max-width:760px){.two{grid-template-columns:1fr}.step{grid-template-columns:45px 1fr}.wrap{padding:14px}header{padding:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="badge">AWS DMS</div>
+  <div class="badge">Schema Conversion</div>
+  <div class="badge">Hands-on Lab V2</div>
+  <div class="badge">MySQL → PostgreSQL</div>
+  <h1>Deep, Observable Schema Conversion Lab</h1>
+  <p><strong>Data Provider → Migration Project → Assessment → Conversion → Action Items → Edit → Apply Changes → Validation</strong></p>
+  <p>This lab deliberately demonstrates the schema-conversion work rather than treating it as a black box.</p>
+</header>
+
+<section>
+<h2>1. Lab purpose</h2>
+<p>This Version 2 lab is designed so that a learner can <strong>see, inspect, compare, modify and validate</strong> the result of AWS DMS Schema Conversion.</p>
+<div class="note">
+  <strong>Scope:</strong> MySQL is the source and PostgreSQL is the target. <strong>No Oracle is used anywhere in this lab.</strong>
+</div>
+<p>AWS DMS Schema Conversion converts database schema and supported database code objects; it does <strong>not</strong> migrate the actual table data. Data movement is a separate AWS DMS data-migration activity. The workflow used here follows the AWS documented pattern: create data providers and an instance profile, create a migration project, assess, convert, review/edit, and apply or export the converted code.</p>
+<p class="small">AWS reference: DMS Schema Conversion overview and workflow.</p>
+</section>
+
+<section>
+<h2>2. What you will build</h2>
+
+<div class="svgbox">
+<svg viewBox="0 0 1120 330" width="100%" role="img" aria-label="MySQL to PostgreSQL schema conversion flow">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L10,3 L0,6 z" fill="#2563eb"/>
+    </marker>
+  </defs>
+  <rect x="25" y="90" width="165" height="115" rx="16" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="107" y="122" text-anchor="middle" font-size="19" font-weight="700" fill="#173b72">MySQL</text>
+  <text x="107" y="150" text-anchor="middle" font-size="14">saleslab</text>
+  <text x="107" y="174" text-anchor="middle" font-size="13">tables + view</text>
+
+  <rect x="230" y="90" width="170" height="115" rx="16" fill="#ede9fe" stroke="#6d28d9"/>
+  <text x="315" y="122" text-anchor="middle" font-size="18" font-weight="700" fill="#4c1d95">Source</text>
+  <text x="315" y="147" text-anchor="middle" font-size="14">Data Provider</text>
+  <text x="315" y="174" text-anchor="middle" font-size="12">+ Secrets Manager</text>
+
+  <rect x="440" y="90" width="190" height="115" rx="16" fill="#eef2ff" stroke="#4f46e5"/>
+  <text x="535" y="122" text-anchor="middle" font-size="18" font-weight="700" fill="#3730a3">Migration</text>
+  <text x="535" y="148" text-anchor="middle" font-size="18" font-weight="700" fill="#3730a3">Project</text>
+  <text x="535" y="176" text-anchor="middle" font-size="12">instance profile</text>
+
+  <rect x="670" y="90" width="170" height="115" rx="16" fill="#fef3c7" stroke="#b45309"/>
+  <text x="755" y="121" text-anchor="middle" font-size="18" font-weight="700" fill="#92400e">Assess</text>
+  <text x="755" y="148" text-anchor="middle" font-size="13">automatic</text>
+  <text x="755" y="169" text-anchor="middle" font-size="13">vs manual</text>
+  <text x="755" y="190" text-anchor="middle" font-size="13">action items</text>
+
+  <rect x="880" y="90" width="215" height="115" rx="16" fill="#d1fae5" stroke="#047857"/>
+  <text x="987" y="120" text-anchor="middle" font-size="18" font-weight="700" fill="#065f46">Convert → Review</text>
+  <text x="987" y="147" text-anchor="middle" font-size="13">target SQL</text>
+  <text x="987" y="169" text-anchor="middle" font-size="13">edit → Apply Changes</text>
+  <text x="987" y="191" text-anchor="middle" font-size="13">PostgreSQL schema</text>
+
+  <line x1="190" y1="147" x2="230" y2="147" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="400" y1="147" x2="440" y2="147" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="630" y1="147" x2="670" y2="147" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="840" y1="147" x2="880" y2="147" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <text x="560" y="270" text-anchor="middle" font-size="15" fill="#5d6b82">Schema conversion = structure/code conversion; data migration is a separate DMS task.</text>
+</svg>
+</div>
+
+<div class="grid">
+<div class="mini"><span class="pill p-blue">Source</span><h4>MySQL</h4><p>Sample sales database containing customers, products, orders and a view.</p></div>
+<div class="mini"><span class="pill p-purple">Metadata</span><h4>Data Providers</h4><p>Logical connection definitions used by DMS Schema Conversion.</p></div>
+<div class="mini"><span class="pill p-orange">Analysis</span><h4>Assessment</h4><p>Shows what can convert automatically and where manual work is required.</p></div>
+<div class="mini"><span class="pill p-green">Target</span><h4>PostgreSQL</h4><p>Target schema created by applying reviewed converted SQL.</p></div>
+</div>
+</section>
+
+<section>
+<h2>3. Learning objectives</h2>
+<div class="check">Create a MySQL source database with deliberately useful conversion cases.</div>
+<div class="check">Create a PostgreSQL target database and the required DMS target permissions.</div>
+<div class="check">Create source and target Data Providers and understand their purpose.</div>
+<div class="check">Create a DMS Schema Conversion migration project.</div>
+<div class="check">Run an assessment and identify action items.</div>
+<div class="check">Convert the source schema and inspect source SQL versus generated target SQL.</div>
+<div class="check">Complete a manual action-item exercise by editing target SQL.</div>
+<div class="check">Apply the reviewed changes to PostgreSQL.</div>
+<div class="check">Validate the resulting PostgreSQL schema.</div>
+<div class="check">Understand why schema conversion and data migration are separate phases.</div>
+</section>
+
+
+<section>
+<h2>3A. Required execution sequence — READ THIS BEFORE STARTING</h2>
+
+<div class="warn">
+  <strong>Do not run the files in an arbitrary order.</strong> The lab has one CloudFormation template and two SQL files. 
+  The CloudFormation stack must be completed first because it creates the VPC, public subnets, RDS databases, security group,
+  Secrets Manager secrets, DMS subnet group, DMS instance profile, Data Providers, S3 bucket, IAM roles, and the DMS Migration Project.
+</div>
+
+<div class="svgbox">
+<svg viewBox="0 0 1120 310" width="100%" role="img" aria-label="Required execution sequence">
+<defs>
+<marker id="seqArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+<path d="M0,0 L10,3 L0,6 z" fill="#2563eb"/>
+</marker>
+</defs>
+<rect x="25" y="85" width="220" height="110" rx="16" fill="#dbeafe" stroke="#2563eb"/>
+<text x="135" y="120" text-anchor="middle" font-size="18" font-weight="700" fill="#173b72">1. CloudFormation</text>
+<text x="135" y="148" text-anchor="middle" font-size="13">Low-cost lab foundation</text>
+<text x="135" y="172" text-anchor="middle" font-size="12">VPC + RDS + DMS + IAM + S3</text>
+
+<line x1="245" y1="140" x2="295" y2="140" stroke="#2563eb" stroke-width="3" marker-end="url(#seqArrow)"/>
+
+<rect x="295" y="85" width="220" height="110" rx="16" fill="#fef3c7" stroke="#b45309"/>
+<text x="405" y="120" text-anchor="middle" font-size="18" font-weight="700" fill="#92400e">2. MySQL SQL</text>
+<text x="405" y="148" text-anchor="middle" font-size="13">Create saleslab</text>
+<text x="405" y="172" text-anchor="middle" font-size="12">tables + view + sample data</text>
+
+<line x1="515" y1="140" x2="565" y2="140" stroke="#2563eb" stroke-width="3" marker-end="url(#seqArrow)"/>
+
+<rect x="565" y="85" width="220" height="110" rx="16" fill="#ede9fe" stroke="#6d28d9"/>
+<text x="675" y="120" text-anchor="middle" font-size="18" font-weight="700" fill="#4c1d95">3. PostgreSQL</text>
+<text x="675" y="148" text-anchor="middle" font-size="13">Target already created</text>
+<text x="675" y="172" text-anchor="middle" font-size="12">Optional separate-user SQL</text>
+
+<line x1="785" y1="140" x2="835" y2="140" stroke="#2563eb" stroke-width="3" marker-end="url(#seqArrow)"/>
+
+<rect x="835" y="85" width="260" height="110" rx="16" fill="#d1fae5" stroke="#047857"/>
+<text x="965" y="120" text-anchor="middle" font-size="18" font-weight="700" fill="#065f46">4. DMS Console</text>
+<text x="965" y="148" text-anchor="middle" font-size="13">Launch Schema Conversion</text>
+<text x="965" y="172" text-anchor="middle" font-size="12">Assess → Convert → Review → Apply</text>
+
+<text x="560" y="250" text-anchor="middle" font-size="14" fill="#5d6b82">The CloudFormation stack is the prerequisite for every subsequent lab step.</text>
+</svg>
+</div>
+
+<h3>Exact sequence</h3>
+<table>
+<tr><th>Order</th><th>File / action</th><th>Run where?</th><th>Required before next step?</th></tr>
+<tr>
+<td><strong>1</strong></td>
+<td><code>AWS_DMS_SchemaConversion_Lab_V2_Demo_No_AZ_FIXED.yaml</code></td>
+<td>AWS CloudFormation</td>
+<td><strong>Yes.</strong> Wait until the stack is <code>CREATE_COMPLETE</code>.</td>
+</tr>
+<tr>
+<td><strong>2</strong></td>
+<td><code>AWS_DMS_SchemaConversion_Lab_V2_DB_Setup_MySQL.sql</code></td>
+<td>MySQL client / MySQL Workbench / CLI</td>
+<td><strong>Yes.</strong> The source schema must exist before Schema Conversion assessment.</td>
+</tr>
+<tr>
+<td><strong>3</strong></td>
+<td><code>AWS_DMS_SchemaConversion_Lab_V2_PostgreSQL_Target_Preparation.sql</code></td>
+<td>PostgreSQL client</td>
+<td><strong>No, optional for the default CloudFormation path.</strong> The stack already creates the <code>dmsadmin</code> target account and the DMS project uses that account.</td>
+</tr>
+<tr>
+<td><strong>4</strong></td>
+<td>DMS Schema Conversion</td>
+<td>AWS DMS console</td>
+<td>Run only after the MySQL schema exists and connectivity succeeds.</td>
+</tr>
+</table>
+
+<div class="note">
+  <strong>Important:</strong> The CloudFormation template creates both RDS databases, including the PostgreSQL database
+  <code>saleslab_pg</code>. Therefore, you do <strong>not</strong> need to create the PostgreSQL database manually.
+  The PostgreSQL preparation SQL is provided only for the optional scenario where you want a dedicated
+  <code>dms_sc_user</code> instead of the default <code>dmsadmin</code> account.
+</div>
+</section>
+
+<section>
+<h2>3B. Resources created by the CloudFormation template</h2>
+<p>Use the following resource inventory when following the lab. The names are generated from the CloudFormation parameter
+<code>ProjectName</code>. The default value is <code>dms-sc-v2</code>.</p>
+
+<table>
+<tr><th>CloudFormation logical ID</th><th>AWS resource</th><th>Default physical/resource name</th><th>Purpose</th></tr>
+<tr><td><code>VPC</code></td><td>VPC</td><td><code>dms-sc-v2-vpc</code></td><td>Lab network, CIDR <code>10.20.0.0/16</code>.</td></tr>
+<tr><td><code>InternetGateway</code></td><td>Internet Gateway</td><td><code>dms-sc-v2-igw</code></td><td>Internet connectivity for public subnets.</td></tr>
+<tr><td><code>PublicSubnet1</code></td><td>Public subnet</td><td><code>dms-sc-v2-public-a</code></td><td>First AZ; RDS/DMS networking.</td></tr>
+<tr><td><code>PublicSubnet2</code></td><td>Public subnet</td><td><code>dms-sc-v2-public-b</code></td><td>Second AZ; RDS/DMS networking.</td></tr>
+<tr><td><code>PublicRouteTable</code></td><td>Route table</td><td><code>dms-sc-v2-public-rt</code></td><td>Routes <code>0.0.0.0/0</code> to the IGW.</td></tr>
+<tr><td><code>DatabaseSecurityGroup</code></td><td>EC2 Security Group</td><td><code>dms-sc-v2-db-sg</code></td><td>Allows TCP 3306 and 5432 from <code>0.0.0.0/0</code>.</td></tr>
+<tr><td><code>RDSSubnetGroup</code></td><td>RDS DB subnet group</td><td><code>dms-sc-v2-rds-subnets</code></td><td>Places both RDS databases in the two public subnets.</td></tr>
+<tr><td><code>MySQL</code></td><td>RDS MySQL</td><td><code>dms-sc-v2-mysql</code></td><td>Source database; DB name <code>saleslab</code>; user <code>dmsadmin</code>.</td></tr>
+<tr><td><code>PostgreSQL</code></td><td>RDS PostgreSQL</td><td><code>dms-sc-v2-postgres</code></td><td>Target database; DB name <code>saleslab_pg</code>; user <code>dmsadmin</code>.</td></tr>
+<tr><td><code>MySQLSecret</code></td><td>Secrets Manager secret</td><td><code>dms-sc-v2/mysql-secret</code></td><td>Stores MySQL endpoint, port, username and password.</td></tr>
+<tr><td><code>PostgreSQLSecret</code></td><td>Secrets Manager secret</td><td><code>dms-sc-v2/postgres-secret</code></td><td>Stores PostgreSQL endpoint, port, username and password.</td></tr>
+<tr><td><code>DMSSecretsRole</code></td><td>IAM role</td><td><code>dms-sc-v2-dms-secrets-role</code></td><td>Allows DMS Schema Conversion to read both lab secrets using <code>secretsmanager:GetSecretValue</code> and <code>secretsmanager:DescribeSecret</code>.</td></tr>
+<tr><td><code>SchemaConversionBucket</code></td><td>S3 bucket</td><td>CloudFormation-generated unique name</td><td>Stores Schema Conversion metadata, assessment reports and converted SQL.</td></tr>
+<tr><td><code>SchemaConversionS3Role</code></td><td>IAM role</td><td><code>dms-sc-v2-sc-s3-role</code></td><td>Allows DMS Schema Conversion to access the S3 bucket; the bucket has versioning enabled as required for Schema Conversion artifacts.</td></tr>
+<tr><td><code>DMSVPCRole</code></td><td>IAM role</td><td><code>dms-sc-v2-dms-vpc-role</code></td><td>DMS VPC/subnet-group management role.</td></tr>
+<tr><td><code>DMSSubnetGroup</code></td><td>DMS replication subnet group</td><td><code>dms-sc-v2-dms-subnets</code></td><td>Provides the subnets used by the Schema Conversion instance profile.</td></tr>
+<tr><td><code>SchemaConversionInstanceProfile</code></td><td>DMS instance profile</td><td><code>dms-sc-v2-sc-profile</code></td><td>Network/security context for the serverless Schema Conversion environment.</td></tr>
+<tr><td><code>MySQLDataProvider</code></td><td>DMS Data Provider</td><td><code>dms-sc-v2-mysql-source</code></td><td>Describes the MySQL source database.</td></tr>
+<tr><td><code>PostgreSQLDataProvider</code></td><td>DMS Data Provider</td><td><code>dms-sc-v2-postgres-target</code></td><td>Describes the PostgreSQL target database.</td></tr>
+<tr><td><code>MigrationProject</code></td><td>DMS Migration Project</td><td><code>dms-sc-v2-project</code></td><td>Connects the instance profile, providers, secrets and Schema Conversion.</td></tr>
+</table>
+
+<div class="success">
+  <strong>There is intentionally no DMS Replication Instance in this stack.</strong>
+  DMS Migration Projects used for Schema Conversion are serverless and AWS provisions the required cloud resources.
+  This keeps the lab simpler and avoids a continuously running paid replication instance.
+</div>
+</section>
+
+<section>
+<h2>3C. CloudFormation outputs — capture these after deployment</h2>
+<p>After the stack reaches <code>CREATE_COMPLETE</code>, open the CloudFormation <strong>Outputs</strong> tab and record:</p>
+
+<table>
+<tr><th>Output</th><th>Use</th></tr>
+<tr><td><code>VpcId</code></td><td>Confirm the lab VPC.</td></tr>
+<tr><td><code>DatabaseSecurityGroupId</code></td><td>Security group used by both databases and the DMS instance profile.</td></tr>
+<tr><td><code>MySQLEndpoint</code></td><td>Use when connecting from MySQL Workbench/CLI.</td></tr>
+<tr><td><code>MySQLPort</code></td><td>Normally <code>3306</code>.</td></tr>
+<tr><td><code>MySQLDatabase</code></td><td><code>saleslab</code>.</td></tr>
+<tr><td><code>PostgreSQLEndpoint</code></td><td>Use when connecting from pgAdmin/psql/SQL client.</td></tr>
+<tr><td><code>PostgreSQLPort</code></td><td>Normally <code>5432</code>.</td></tr>
+<tr><td><code>PostgreSQLDatabase</code></td><td><code>saleslab_pg</code>.</td></tr>
+<tr><td><code>MySQLSecretArn</code></td><td>Credential reference used by the DMS Migration Project.</td></tr>
+<tr><td><code>PostgreSQLSecretArn</code></td><td>Credential reference used by the DMS Migration Project.</td></tr>
+<tr><td><code>DMSInstanceProfile</code></td><td>Expected value: <code>dms-sc-v2-sc-profile</code>.</td></tr>
+<tr><td><code>MySQLDataProvider</code></td><td>Expected value: <code>dms-sc-v2-mysql-source</code>.</td></tr>
+<tr><td><code>PostgreSQLDataProvider</code></td><td>Expected value: <code>dms-sc-v2-postgres-target</code>.</td></tr>
+<tr><td><code>MigrationProject</code></td><td>Expected value: <code>dms-sc-v2-project</code>.</td></tr>
+<tr><td><code>SchemaConversionBucket</code></td><td>Unique S3 bucket used for DMS Schema Conversion artifacts.</td></tr>
+</table>
+</section>
+
+<section>
+<h2>3D. Step-by-step deployment sequence</h2>
+
+<div class="step"><div class="num">1</div><div>
+<h4>Deploy CloudFormation first</h4>
+<p>Open AWS Console → CloudFormation → <strong>Create stack</strong> → With new resources.</p>
+<p>Upload:</p>
+<pre><code>AWS_DMS_SchemaConversion_Lab_V2_Demo_No_AZ_FIXED.yaml</code></pre>
+<p>Use:</p>
+<ul>
+<li><strong>ProjectName:</strong> <code>dms-sc-v2</code></li>
+<li><strong>DBPassword:</strong> choose a temporary lab password</li>
+<li><strong>MySQLInstanceClass:</strong> <code>db.t4g.micro</code> where supported; otherwise <code>db.t3.micro</code></li>
+<li><strong>PostgreSQLInstanceClass:</strong> <code>db.t4g.micro</code> where supported; otherwise <code>db.t3.micro</code></li>
+<li><strong>0.0.0.0/0:</strong> <code>0.0.0.0/0</code> for this temporary lab</li>
+<li><strong>AvailabilityZone1/2:</strong> choose two AZs in the selected Region</li>
+</ul>
+</div></div>
+
+<div class="step"><div class="num">2</div><div>
+<h4>Wait for CREATE_COMPLETE</h4>
+<p>Do not continue to SQL setup until the CloudFormation stack shows <strong>CREATE_COMPLETE</strong>.</p>
+<p>At this point the RDS endpoints, secrets, DMS Data Providers, instance profile and Migration Project should exist.</p>
+</div></div>
+
+<div class="step"><div class="num">3</div><div>
+<h4>Capture CloudFormation Outputs</h4>
+<p>Copy the MySQL and PostgreSQL endpoints and the DMS resource names from the Outputs tab.</p>
+</div></div>
+
+<div class="step"><div class="num">4</div><div>
+<h4>Run the MySQL setup SQL</h4>
+<p>Connect to the output MySQL endpoint using <code>dmsadmin</code> and the password supplied to CloudFormation.</p>
+<p>Then run:</p>
+<pre><code>AWS_DMS_SchemaConversion_Lab_V2_DB_Setup_MySQL.sql</code></pre>
+<p>This creates <code>saleslab</code>, its four tables, the view and sample data.</p>
+</div></div>
+
+<div class="step"><div class="num">5</div><div>
+<h4>Do not run the PostgreSQL preparation SQL unless needed</h4>
+<p>The default CloudFormation path already uses <code>dmsadmin</code> for the target secret and Migration Project.</p>
+<p>If you deliberately want a separate Schema Conversion user, run:</p>
+<pre><code>AWS_DMS_SchemaConversion_Lab_V2_PostgreSQL_Target_Preparation.sql</code></pre>
+<p>but then update the PostgreSQL secret and/or migration project to use that account. Do not mix the two credential paths accidentally.</p>
+</div></div>
+
+<div class="step"><div class="num">6</div><div>
+<h4>Open AWS DMS</h4>
+<p>Open Migration projects → <code>dms-sc-v2-project</code>.</p>
+<p>Verify that the project references:</p>
+<ul>
+<li><code>dms-sc-v2-sc-profile</code></li>
+<li><code>dms-sc-v2-mysql-source</code></li>
+<li><code>dms-sc-v2-postgres-target</code></li>
+</ul>
+</div></div>
+
+<div class="step"><div class="num">7</div><div>
+<h4>Launch Schema Conversion</h4>
+<p>Choose <strong>Schema conversion → Launch schema conversion</strong>.</p>
+<p>On first launch, AWS DMS may take several minutes to start the Schema Conversion environment and read database metadata.</p>
+</div></div>
+
+<div class="step"><div class="num">8</div><div>
+<h4>Continue with the V2 conversion exercise</h4>
+<p>Now follow the lab sequence:</p>
+<pre><code>Load Metadata
+    ↓
+Assess
+    ↓
+Review Assessment / Action Items
+    ↓
+Convert
+    ↓
+Compare MySQL SQL vs PostgreSQL SQL
+    ↓
+Resolve Manual Action Items
+    ↓
+Edit Target SQL
+    ↓
+Apply Changes
+    ↓
+Validate PostgreSQL</code></pre>
+</div></div>
+</section>
+
+
+<div class="warn">
+<strong>LAB SECURITY WARNING:</strong> The CloudFormation template intentionally makes both RDS instances publicly
+accessible and opens TCP 3306/5432 to <code>0.0.0.0/0</code>. This is only to allow direct access from a home machine.
+For production, replace <code>0.0.0.0/0</code> with your public IP in <code>/32</code> form and remove public access where possible.
+Delete the stack after the lab to stop RDS charges and remove the temporary exposure.
+</div>
+
+
+<section>
+<h2>Important update — RDS Availability Zone and capacity handling</h2>
+
+<div class="warn">
+<strong>If CloudFormation reports InsufficientDBInstanceCapacityFault:</strong>
+the selected RDS instance class/storage combination does not currently have sufficient capacity
+in the available Availability Zones for the request. This is an AWS infrastructure-capacity issue,
+not a DMS Schema Conversion issue.
+</div>
+
+<h3>Use the updated CloudFormation template</h3>
+<p>For this lab, use:</p>
+<pre><code>AWS_DMS_SchemaConversion_Lab_V2_Demo_No_AZ_FIXED.yaml</code></pre>
+
+<p>The revised template makes three changes:</p>
+<ol>
+<li><strong>No AvailabilityZone parameters are required from the learner.</strong></li>
+<li>The VPC creates three public subnets using the first three AZs returned automatically by AWS.</li>
+<li>The RDS <code>DBInstance</code> resources do <strong>not</strong> specify an <code>AvailabilityZone</code>; RDS can choose the placement.</li>
+</ol>
+
+<table>
+<tr><th>Setting</th><th>Original template</th><th>Updated template</th></tr>
+<tr><td>AZ parameters</td><td>Learner supplied AZ1/AZ2</td><td><strong>Removed</strong></td></tr>
+<tr><td>RDS AvailabilityZone property</td><td>Not explicitly set, but subnet selection was fixed by supplied AZs</td><td><strong>Not set</strong></td></tr>
+<tr><td>RDS subnet choices</td><td>2 subnets</td><td><strong>3 automatically selected AZs</strong></td></tr>
+<tr><td>MySQL default class</td><td><code>db.t4g.micro</code></td><td><strong><code>db.t3.micro</code></strong></td></tr>
+<tr><td>PostgreSQL default class</td><td><code>db.t4g.micro</code></td><td><strong><code>db.t3.micro</code></strong></td></tr>
+<tr><td>Multi-AZ database</td><td>Disabled</td><td>Disabled</td></tr>
+<tr><td>NAT Gateway</td><td>None</td><td>None</td></tr>
+<tr><td>Home access</td><td><code>0.0.0.0/0</code></td><td><code>0.0.0.0/0</code></td></tr>
+</table>
+
+<div class="note">
+<strong>Why three subnets?</strong> The RDS DB subnet group still spans multiple Availability Zones.
+The learner does not have to select the AZs manually, and RDS has more AZ choices when placing the
+single-AZ lab instance. Creating additional subnets does not itself incur an hourly charge.
+</div>
+
+<div class="warn">
+<strong>Important:</strong> This does not guarantee capacity. AWS can still reject a particular
+instance class/storage combination if capacity is unavailable. If that happens, change the
+CloudFormation parameter <code>MySQLInstanceClass</code> or <code>PostgreSQLInstanceClass</code>
+to <code>db.t3.micro</code> (the default in the revised template), or try another Region.
+</div>
+
+<h3>Do not try to remove AZs from the DB subnet group completely</h3>
+<p>RDS DB subnet groups are designed around subnets in multiple Availability Zones. Therefore,
+“without Availability Zone” should mean <strong>without hard-coding a specific AZ for the DB instance</strong>,
+not “create an RDS DB subnet group with no AZs.”</p>
+
+<h3>Recommended deployment parameters</h3>
+<pre><code>ProjectName             = dms-sc-v2
+MySQLInstanceClass      = db.t3.micro
+PostgreSQLInstanceClass = db.t3.micro
+0.0.0.0/0              = 0.0.0.0/0       # temporary lab only
+DBPassword               = &lt;your temporary lab password&gt;</code></pre>
+
+<h3>If the previous stack failed</h3>
+<p>If CloudFormation is in <code>ROLLBACK_COMPLETE</code>, delete that failed stack first,
+then deploy the revised template as a new stack. If the stack is still rolling back,
+wait until rollback finishes before deleting/redeploying.</p>
+</section>
+
+<section>
+<h2>4. Prerequisites</h2>
+<table>
+<tr><th>Requirement</th><th>Recommended setup</th></tr>
+<tr><td>AWS account</td><td>Use an account/role allowed to create DMS, IAM, Secrets Manager and RDS resources.</td></tr>
+<tr><td>AWS Region</td><td>Use one Region consistently for MySQL, PostgreSQL, DMS and Secrets Manager.</td></tr>
+<tr><td>Network</td><td>MySQL and PostgreSQL must be reachable from the DMS Schema Conversion instance profile.</td></tr>
+<tr><td>MySQL</td><td>Amazon RDS for MySQL is recommended for the lab, but another reachable MySQL instance can be used.</td></tr>
+<tr><td>PostgreSQL</td><td>Amazon RDS for PostgreSQL is recommended.</td></tr>
+<tr><td>Secrets Manager</td><td>One secret for MySQL and one for PostgreSQL.</td></tr>
+<tr><td>DMS</td><td>DMS Schema Conversion migration project and instance profile.</td></tr>
+</table>
+<div class="warn"><strong>Important for RDS PostgreSQL:</strong> AWS documentation states that DMS Schema Conversion requires the <code>rds_superuser</code> role when Amazon RDS for PostgreSQL is used as the target. Do not confuse this with the later, separate permissions required by a normal DMS data-migration task.</div>
+</section>
+
+
+<div class="note">
+<strong>Lab files:</strong>
+<ul>
+<li><a href="AWS_DMS_SchemaConversion_Lab_V2_Demo_No_AZ_FIXED.yaml">CloudFormation — infrastructure and DMS foundation</a></li>
+<li><a href="AWS_DMS_SchemaConversion_Lab_V2_DB_Setup_MySQL.sql">MySQL — source schema and sample data</a></li>
+<li><a href="AWS_DMS_SchemaConversion_Lab_V2_PostgreSQL_Target_Preparation.sql">PostgreSQL — optional separate-user preparation</a></li>
+</ul>
+</div>
+
+<section>
+<h2>5. Lab naming standard</h2>
+<table>
+<tr><th>Component</th><th>Lab name</th></tr>
+<tr><td>MySQL database</td><td><code>saleslab</code></td></tr>
+<tr><td>PostgreSQL database</td><td><code>saleslab_pg</code></td></tr>
+<tr><td>Source Data Provider</td><td><code>dms-sc-v2-mysql-source</code></td></tr>
+<tr><td>Target Data Provider</td><td><code>dms-sc-v2-postgres-target</code></td></tr>
+<tr><td>Instance Profile</td><td><code>dms-sc-v2-sc-profile</code></td></tr>
+<tr><td>Migration Project</td><td><code>dms-sc-v2-project</code></td></tr>
+<tr><td>Source secret</td><td><code>dms-sc-v2/mysql-secret</code></td></tr>
+<tr><td>Target secret</td><td><code>dms-sc-v2/postgres-secret</code></td></tr>
+</table>
+</section>
+
+<section>
+<h2>6. Step 1 — Prepare the MySQL source database</h2>
+<p>Create a small but intentionally interesting schema. The goal is not merely to move four simple tables; it is to give Schema Conversion something observable to analyze.</p>
+
+<h3>6.1 Create the database</h3>
+<pre><code>CREATE DATABASE saleslab;
+USE saleslab;</code></pre>
+
+<h3>6.2 Create customers</h3>
+<pre><code>CREATE TABLE customers (
+    customer_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    customer_name VARCHAR(100) NOT NULL,
+    email VARCHAR(150),
+    credit_limit DECIMAL(12,2),
+    is_active TINYINT(1) DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
+);</code></pre>
+
+<h3>6.3 Create products</h3>
+<pre><code>CREATE TABLE products (
+    product_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    product_name VARCHAR(120) NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    category VARCHAR(50),
+    status ENUM('ACTIVE','INACTIVE') DEFAULT 'ACTIVE'
+);</code></pre>
+
+<h3>6.4 Create orders</h3>
+<pre><code>CREATE TABLE orders (
+    order_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT UNSIGNED NOT NULL,
+    order_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(12,2),
+    status VARCHAR(20) DEFAULT 'NEW',
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id)
+        REFERENCES customers(customer_id)
+);</code></pre>
+
+<h3>6.5 Create order items</h3>
+<pre><code>CREATE TABLE order_items (
+    order_item_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT UNSIGNED NOT NULL,
+    product_id INT UNSIGNED NOT NULL,
+    quantity INT NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id)
+        REFERENCES orders(order_id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id)
+        REFERENCES products(product_id)
+);</code></pre>
+
+<h3>6.6 Insert sample data</h3>
+<pre><code>INSERT INTO customers
+(customer_name, email, credit_limit, is_active)
+VALUES
+('Alice Sharma','alice@example.com',50000.00,1),
+('Rahul Verma','rahul@example.com',75000.00,1),
+('Neha Singh','neha@example.com',25000.00,1);
+
+INSERT INTO products
+(product_name, unit_price, category, status)
+VALUES
+('Laptop',65000.00,'Computers','ACTIVE'),
+('Monitor',18000.00,'Displays','ACTIVE'),
+('Keyboard',2500.00,'Accessories','ACTIVE');
+
+INSERT INTO orders
+(customer_id,total_amount,status)
+VALUES
+(1,83000.00,'NEW'),
+(2,20500.00,'CONFIRMED'),
+(3,2500.00,'NEW');
+
+INSERT INTO order_items
+(order_id,product_id,quantity,unit_price)
+VALUES
+(1,1,1,65000.00),
+(1,2,1,18000.00),
+(2,2,1,18000.00),
+(2,3,1,2500.00),
+(3,3,1,2500.00);</code></pre>
+
+<h3>6.7 Add a view to make code conversion observable</h3>
+<pre><code>CREATE VIEW customer_order_summary AS
+SELECT
+    c.customer_id,
+    c.customer_name,
+    COUNT(o.order_id) AS order_count,
+    IFNULL(SUM(o.total_amount), 0) AS total_spend
+FROM customers c
+LEFT JOIN orders o
+    ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.customer_name;</code></pre>
+
+<div class="tip"><strong>Why this schema?</strong> It contains unsigned integers, auto-increment columns, DECIMAL, TINYINT(1), DATETIME, an ENUM, an <code>ON UPDATE</code> clause, foreign keys and a view using MySQL-specific <code>IFNULL()</code>. These make the conversion easier to observe.</div>
+
+<h3>6.8 Confirm the source</h3>
+<pre><code>USE saleslab;
+
+SHOW TABLES;
+DESCRIBE customers;
+DESCRIBE products;
+DESCRIBE orders;
+DESCRIBE order_items;
+
+SELECT * FROM customer_order_summary;</code></pre>
+</section>
+
+<section>
+<h2>7. Step 2 — Prepare the PostgreSQL target</h2>
+
+<h3>7.1 Confirm the target database</h3>
+<p>Connect to the CloudFormation output PostgreSQL endpoint and verify <code>saleslab_pg</code>. Do not manually create the database because CloudFormation has already created it.</p>
+
+<h3>7.2 Create the Schema Conversion user</h3>
+<pre><code>CREATE ROLE dms_sc_user LOGIN PASSWORD 'REPLACE_WITH_SECURE_PASSWORD';
+
+GRANT CONNECT ON DATABASE saleslab_pg TO dms_sc_user;
+GRANT CREATE ON DATABASE saleslab_pg TO dms_sc_user;
+
+-- Required when Amazon RDS for PostgreSQL is the target
+GRANT rds_superuser TO dms_sc_user;</code></pre>
+
+<div class="warn"><strong>Do not use the sample password in a real environment.</strong> Store the actual password in AWS Secrets Manager.</div>
+
+<h3>7.3 Connect to the target database</h3>
+<pre><code>\c saleslab_pg
+
+SELECT current_database();
+SELECT current_user;</code></pre>
+
+<div class="note">The exact permissions needed can vary with the target and the operation being performed. For this lab, the explicit RDS PostgreSQL <code>rds_superuser</code> requirement is included because AWS documents it for DMS Schema Conversion.</div>
+</section>
+
+<section>
+<h2>8. Step 3 — Create Secrets Manager secrets</h2>
+
+<h3>8.1 MySQL secret</h3>
+<p>Create a Secrets Manager secret for the MySQL source. A typical connection payload is:</p>
+<pre><code>{
+  "username": "dms_source_user",
+  "password": "REPLACE_WITH_SECURE_PASSWORD",
+  "server": "MYSQL_RDS_ENDPOINT",
+  "port": 3306,
+  "database": "saleslab"
+}</code></pre>
+
+<h3>8.2 PostgreSQL secret</h3>
+<pre><code>{
+  "username": "dms_sc_user",
+  "password": "REPLACE_WITH_SECURE_PASSWORD",
+  "server": "POSTGRES_RDS_ENDPOINT",
+  "port": 5432,
+  "database": "saleslab_pg"
+}</code></pre>
+
+<p>Record the two secret ARNs. The IAM role used by DMS Schema Conversion must be allowed to retrieve these secrets.</p>
+</section>
+
+<section>
+<h2>9. Step 4 — Create the DMS Schema Conversion Instance Profile</h2>
+<p>Open the AWS DMS console and navigate to <strong>Migration projects / Instance profiles</strong> according to the current console layout.</p>
+
+<div class="step"><div class="num">1</div><div><h4>Create instance profile</h4><p>Choose <strong>Create instance profile</strong>.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Name</h4><p>Enter <code>dms-sc-v2-sc-profile</code>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Network</h4><p>Select the VPC/subnets/security groups that can reach both MySQL and PostgreSQL.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>S3 access</h4><p>Provide the S3 configuration/permissions required by Schema Conversion in your environment.</p></div></div>
+<div class="step"><div class="num">5</div><div><h4>Create</h4><p>Create the instance profile and wait until its status is ready.</p></div></div>
+
+<div class="tip">Think of the instance profile as the <strong>runtime/network/security context</strong> used by Schema Conversion. It is not the same thing as a Data Provider.</div>
+</section>
+
+<section>
+<h2>10. Step 5 — Create the MySQL Source Data Provider</h2>
+
+<div class="step"><div class="num">1</div><div><h4>Open Data Providers</h4><p>In AWS DMS, open <strong>Data Providers</strong> and choose <strong>Create data provider</strong>.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Name</h4><p>Enter <code>dms-sc-v2-mysql-source</code>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Engine</h4><p>Select <strong>MySQL</strong>.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Endpoint information</h4><p>Provide the MySQL RDS endpoint, port <code>3306</code>, and database <code>saleslab</code> as appropriate for the console fields.</p></div></div>
+<div class="step"><div class="num">5</div><div><h4>Create</h4><p>Create the provider.</p></div></div>
+
+<div class="note"><strong>Data Provider mental model:</strong> it describes <em>where/how the database environment is reached</em>. The credentials are separately supplied through Secrets Manager in the migration project configuration.</div>
+</section>
+
+<section>
+<h2>11. Step 6 — Create the PostgreSQL Target Data Provider</h2>
+
+<div class="step"><div class="num">1</div><div><h4>Create data provider</h4><p>Choose <strong>Create data provider</strong>.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Name</h4><p>Enter <code>dms-sc-v2-postgres-target</code>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Engine</h4><p>Select <strong>PostgreSQL</strong>.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Endpoint</h4><p>Enter the PostgreSQL RDS endpoint, port <code>5432</code>, and target database <code>saleslab_pg</code>.</p></div></div>
+<div class="step"><div class="num">5</div><div><h4>Create</h4><p>Create the target provider.</p></div></div>
+</section>
+
+<section>
+<h2>12. Step 7 — Create the Migration Project</h2>
+<p>A migration project ties together the <strong>source Data Provider</strong>, <strong>target Data Provider</strong>, <strong>Secrets Manager secrets</strong>, and <strong>instance profile</strong>.</p>
+
+<div class="step"><div class="num">1</div><div><h4>Open Migration projects</h4><p>Choose <strong>Create migration project</strong>.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Name</h4><p>Enter <code>dms-sc-v2-project</code>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Instance profile</h4><p>Select <code>dms-sc-v2-sc-profile</code>.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Source</h4><p>Choose <code>dms-sc-v2-mysql-source</code>, then select the MySQL secret and the IAM role permitted to retrieve it.</p></div></div>
+<div class="step"><div class="num">5</div><div><h4>Target</h4><p>Choose <code>dms-sc-v2-postgres-target</code>, then select the PostgreSQL secret and the corresponding IAM role.</p></div></div>
+<div class="step"><div class="num">6</div><div><h4>Create</h4><p>Create the migration project.</p></div></div>
+
+<div class="success"><strong>Checkpoint:</strong> you should now have one migration project containing both Data Providers and the instance profile.</div>
+</section>
+
+<section>
+<h2>13. Step 8 — Test connectivity</h2>
+<p>Before performing assessment or conversion, verify that DMS can reach the source and target.</p>
+
+<div class="grid">
+<div class="mini"><h4>Source test</h4><p>Use the migration project's connection/test capability for the MySQL source.</p><p><span class="pill p-green">Expected</span> Connection succeeds.</p></div>
+<div class="mini"><h4>Target test</h4><p>Test the PostgreSQL target using the target provider and secret.</p><p><span class="pill p-green">Expected</span> Connection succeeds.</p></div>
+</div>
+
+<div class="warn"><strong>If connectivity fails:</strong> check security groups, subnet routing, NACLs, DNS, database firewall rules, credentials, secret IAM permissions, and whether the instance profile is deployed in a network path that can reach both databases.</div>
+</section>
+
+<section>
+<h2>14. Step 9 — Launch Schema Conversion</h2>
+
+<div class="step"><div class="num">1</div><div><h4>Open the project</h4><p>AWS DMS → <strong>Migration projects</strong> → <code>dms-sc-v2-project</code>.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Schema conversion</h4><p>Choose <strong>Schema conversion</strong>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Launch</h4><p>Choose <strong>Launch schema conversion</strong>.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Load metadata</h4><p>If necessary, select the source schema and use the Actions menu to load metadata. DMS can store metadata in S3 to improve subsequent browsing.</p></div></div>
+
+<div class="note">The console can lazily load database objects. If the tree looks incomplete, load metadata before continuing.</div>
+</section>
+
+<section>
+<h2>15. Step 10 — Run the Assessment Report</h2>
+<p>This is the first major observable part of the lab.</p>
+
+<div class="step"><div class="num">1</div><div><h4>Select the source schema</h4><p>In the source database pane, select the <code>saleslab</code> schema/database node.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Choose Assess</h4><p>Use <strong>Actions → Assess</strong>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Confirm</h4><p>Run the assessment.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Open Summary</h4><p>Review the number of storage/code objects DMS believes can be automatically converted.</p></div></div>
+<div class="step"><div class="num">5</div><div><h4>Open Action items</h4><p>Review objects that require manual attention and read the recommended action.</p></div></div>
+<div class="step"><div class="num">6</div><div><h4>Export</h4><p>If available in your console flow, export the assessment/action-item results to CSV/PDF for the lab record.</p></div></div>
+
+<h3>Assessment worksheet</h3>
+<table>
+<tr><th>Object / Feature</th><th>Your observed result</th><th>Automatic or manual?</th><th>What action is recommended?</th></tr>
+<tr><td><code>customers.customer_id</code> AUTO_INCREMENT / UNSIGNED</td><td></td><td></td><td></td></tr>
+<tr><td><code>customers.is_active</code> TINYINT(1)</td><td></td><td></td><td></td></tr>
+<tr><td><code>customers.updated_at</code> ON UPDATE</td><td></td><td></td><td></td></tr>
+<tr><td><code>products.status</code> ENUM</td><td></td><td></td><td></td></tr>
+<tr><td><code>customer_order_summary</code> view</td><td></td><td></td><td></td></tr>
+</table>
+
+<div class="tip"><strong>Training rule:</strong> Do not assume that every item above will receive the same assessment classification in every DMS release/configuration. The assessment report in your AWS console is the authoritative result. Record what you actually observe.</div>
+</section>
+
+<section>
+<h2>16. Step 11 — Perform the conversion</h2>
+<p>Now convert the schema. AWS DMS lets you convert an entire schema or selected objects.</p>
+
+<div class="step"><div class="num">1</div><div><h4>Select the source schema</h4><p>Select <code>saleslab</code> in the source pane.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Convert</h4><p>Choose <strong>Actions → Convert</strong>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Confirm</h4><p>Confirm the conversion operation.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Wait for completion</h4><p>Wait until the conversion finishes.</p></div></div>
+<div class="step"><div class="num">5</div><div><h4>Select an object</h4><p>Choose a converted table or view and inspect the source SQL and Target SQL panes.</p></div></div>
+</section>
+
+<section>
+<h2>17. Step 12 — Observable conversion: MySQL → PostgreSQL</h2>
+<p>The examples below are <strong>expected/representative target forms</strong> for teaching the conversion concept. DMS may generate different but valid PostgreSQL syntax depending on the exact source definition, DMS version and conversion settings. Always treat the generated SQL in the DMS console as authoritative.</p>
+
+<div class="two">
+<div>
+<h3>Example A — AUTO_INCREMENT + UNSIGNED</h3>
+<pre><code>-- MySQL source
+customer_id INT UNSIGNED
+    AUTO_INCREMENT
+    PRIMARY KEY</code></pre>
+</div>
+<div>
+<h3>Expected PostgreSQL concept</h3>
+<pre><code>-- Representative PostgreSQL form
+customer_id INTEGER
+    GENERATED BY DEFAULT AS IDENTITY
+    PRIMARY KEY</code></pre>
+</div>
+</div>
+
+<div class="two">
+<div>
+<h3>Example B — DECIMAL</h3>
+<pre><code>-- MySQL
+credit_limit DECIMAL(12,2)</code></pre>
+</div>
+<div>
+<h3>Expected PostgreSQL concept</h3>
+<pre><code>-- PostgreSQL
+credit_limit NUMERIC(12,2)</code></pre>
+</div>
+</div>
+
+<div class="two">
+<div>
+<h3>Example C — DATETIME</h3>
+<pre><code>-- MySQL
+created_at DATETIME
+    DEFAULT CURRENT_TIMESTAMP</code></pre>
+</div>
+<div>
+<h3>Expected PostgreSQL concept</h3>
+<pre><code>-- PostgreSQL
+created_at TIMESTAMP
+    DEFAULT CURRENT_TIMESTAMP</code></pre>
+</div>
+</div>
+
+<div class="two">
+<div>
+<h3>Example D — Boolean-like flag</h3>
+<pre><code>-- MySQL
+is_active TINYINT(1)
+    DEFAULT 1</code></pre>
+</div>
+<div>
+<h3>Expected PostgreSQL concept</h3>
+<pre><code>-- PostgreSQL concept
+is_active BOOLEAN
+    DEFAULT TRUE</code></pre>
+</div>
+</div>
+
+<div class="two">
+<div>
+<h3>Example E — ENUM</h3>
+<pre><code>-- MySQL
+status ENUM('ACTIVE','INACTIVE')
+    DEFAULT 'ACTIVE'</code></pre>
+</div>
+<div>
+<h3>Possible PostgreSQL representation</h3>
+<pre><code>-- One possible target representation
+CREATE TYPE product_status
+AS ENUM ('ACTIVE','INACTIVE');
+
+status product_status
+    DEFAULT 'ACTIVE'</code></pre>
+</div>
+</div>
+
+<div class="two">
+<div>
+<h3>Example F — MySQL ON UPDATE</h3>
+<pre><code>-- MySQL
+updated_at DATETIME
+    DEFAULT CURRENT_TIMESTAMP
+    ON UPDATE CURRENT_TIMESTAMP</code></pre>
+</div>
+<div>
+<h3>PostgreSQL consideration</h3>
+<pre><code>-- PostgreSQL has no identical
+-- column-level ON UPDATE clause.
+
+-- A common manual design is:
+-- BEFORE UPDATE trigger
+-- that sets updated_at = CURRENT_TIMESTAMP</code></pre>
+</div>
+</div>
+
+<div class="two">
+<div>
+<h3>Example G — IFNULL()</h3>
+<pre><code>-- MySQL view
+IFNULL(SUM(o.total_amount), 0)
+    AS total_spend</code></pre>
+</div>
+<div>
+<h3>PostgreSQL equivalent concept</h3>
+<pre><code>-- PostgreSQL
+COALESCE(SUM(o.total_amount), 0)
+    AS total_spend</code></pre>
+</div>
+</div>
+
+<div class="success"><strong>Key observation:</strong> schema conversion is not simply “copy the CREATE TABLE statement.” It is an engine-to-engine translation problem involving data types, identity behavior, defaults, expressions, constraints and code objects.</div>
+</section>
+
+<section>
+<h2>18. Step 13 — Compare source SQL and generated Target SQL</h2>
+<p>This is the central exercise. Select each object in the DMS Schema Conversion tree and compare the two panes.</p>
+
+<table>
+<tr><th>Source object</th><th>Inspect in DMS</th><th>What to look for</th></tr>
+<tr><td>customers</td><td>Source SQL vs Target SQL</td><td>UNSIGNED, AUTO_INCREMENT, TINYINT(1), DATETIME, ON UPDATE</td></tr>
+<tr><td>products</td><td>Source SQL vs Target SQL</td><td>ENUM representation and default</td></tr>
+<tr><td>orders</td><td>Source SQL vs Target SQL</td><td>BIGINT/UNSIGNED identity and FK</td></tr>
+<tr><td>order_items</td><td>Source SQL vs Target SQL</td><td>FK references and numeric types</td></tr>
+<tr><td>customer_order_summary</td><td>Source SQL vs Target SQL</td><td>IFNULL → PostgreSQL-compatible expression</td></tr>
+</table>
+
+<div class="task">
+<strong>Learner task:</strong> For each object, record one source construct and its PostgreSQL equivalent. Then identify at least one construct that requires design judgment rather than a mechanical type replacement.
+</div>
+
+<details>
+<summary>Expected learning outcome</summary>
+<p>The learner should recognize that <code>ON UPDATE CURRENT_TIMESTAMP</code> is a particularly good design discussion: PostgreSQL does not provide the same MySQL column clause, so a trigger or application-side update strategy may be required.</p>
+</details>
+</section>
+
+<section>
+<h2>19. Step 14 — Action-item exercise</h2>
+<p>Use the actual DMS <strong>Action items</strong> pane as the source of truth. The following exercise teaches how to turn an action item into a target-side design decision.</p>
+
+<div class="task">
+<h3>Exercise A — updated_at behavior</h3>
+<p><strong>Source requirement:</strong> Every time a customer row is updated, <code>updated_at</code> should automatically become the current timestamp.</p>
+<p><strong>MySQL source:</strong></p>
+<pre><code>updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ON UPDATE CURRENT_TIMESTAMP</code></pre>
+<p><strong>Question:</strong> If DMS flags the MySQL <code>ON UPDATE</code> behavior for manual action, how will you implement the equivalent behavior in PostgreSQL?</p>
+</div>
+
+<div class="task">
+<h3>Exercise B — ENUM design</h3>
+<p><strong>Source requirement:</strong> Product status must be either ACTIVE or INACTIVE.</p>
+<p><strong>Question:</strong> Review the generated target SQL. Decide whether the generated representation is acceptable. If not, choose between a PostgreSQL ENUM, a lookup table, or a CHECK constraint and justify the choice.</p>
+</div>
+
+<div class="task">
+<h3>Exercise C — Validation</h3>
+<p>Before applying changes, identify three SQL queries that would prove the target structure satisfies the source requirements.</p>
+</div>
+
+<h3>Suggested solution for Exercise A</h3>
+<p>One valid PostgreSQL implementation is a trigger:</p>
+<pre><code>CREATE OR REPLACE FUNCTION set_customer_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_customers_updated_at
+BEFORE UPDATE ON customers
+FOR EACH ROW
+EXECUTE FUNCTION set_customer_updated_at();</code></pre>
+<div class="note">This is a teaching example. Do not assume DMS will generate exactly this trigger. The exercise is about resolving the semantic gap identified during assessment/conversion.</div>
+</section>
+
+<section>
+<h2>20. Step 15 — Edit the converted Target SQL</h2>
+<p>AWS DMS Schema Conversion allows converted target SQL to be edited before applying it.</p>
+
+<div class="step"><div class="num">1</div><div><h4>Select an object</h4><p>In the source tree, select the converted object that requires editing.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Open Target SQL</h4><p>Expand the target SQL pane if necessary.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Edit</h4><p>Choose the edit control and modify the generated SQL to resolve the action item.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Confirm</h4><p>Use the check/confirm control to save the edited converted code in the migration project.</p></div></div>
+<div class="step"><div class="num">5</div><div><h4>Review</h4><p>Re-read the final target SQL before applying it.</p></div></div>
+
+<div class="warn"><strong>Best practice:</strong> Do not blindly edit generated SQL just to make the action-item count disappear. The target implementation must preserve the intended business behavior.</div>
+</section>
+
+<section>
+<h2>21. Step 16 — Apply Changes</h2>
+<p>This is where the converted schema moves from the DMS migration project into the actual PostgreSQL target database.</p>
+
+<div class="step"><div class="num">1</div><div><h4>Select target schema</h4><p>In the target data provider pane, select the target schema/database node.</p></div></div>
+<div class="step"><div class="num">2</div><div><h4>Apply changes</h4><p>Choose <strong>Actions → Apply changes</strong>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h4>Confirm</h4><p>Confirm the operation and monitor its progress.</p></div></div>
+<div class="step"><div class="num">4</div><div><h4>Wait for completion</h4><p>Do not begin data migration until the schema application is successful.</p></div></div>
+
+<div class="success"><strong>Important distinction:</strong> Apply Changes applies converted schema/code to the target. It does not populate the target tables with the source rows.</div>
+</section>
+
+<section>
+<h2>22. Step 17 — Validate the PostgreSQL schema</h2>
+
+<h3>22.1 List tables</h3>
+<pre><code>\c saleslab_pg
+
+SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_schema NOT IN ('pg_catalog','information_schema')
+ORDER BY table_schema, table_name;</code></pre>
+
+<h3>22.2 Inspect columns and data types</h3>
+<pre><code>SELECT
+    table_schema,
+    table_name,
+    column_name,
+    data_type,
+    is_nullable,
+    column_default
+FROM information_schema.columns
+WHERE table_schema NOT IN ('pg_catalog','information_schema')
+ORDER BY table_schema, table_name, ordinal_position;</code></pre>
+
+<h3>22.3 Check primary/foreign keys</h3>
+<pre><code>SELECT
+    tc.table_schema,
+    tc.table_name,
+    tc.constraint_name,
+    tc.constraint_type
+FROM information_schema.table_constraints tc
+WHERE tc.table_schema NOT IN ('pg_catalog','information_schema')
+ORDER BY tc.table_name, tc.constraint_type;</code></pre>
+
+<h3>22.4 Check the view</h3>
+<pre><code>SELECT table_schema, table_name, table_type
+FROM information_schema.tables
+WHERE table_name = 'customer_order_summary';</code></pre>
+
+<h3>22.5 Validate identity/sequence behavior</h3>
+<pre><code>SELECT
+    table_name,
+    column_name,
+    column_default,
+    is_identity
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name IN
+      ('customers','products','orders','order_items')
+ORDER BY table_name, ordinal_position;</code></pre>
+
+<h3>22.6 Functional validation</h3>
+<pre><code>SELECT *
+FROM customer_order_summary
+ORDER BY customer_id;</code></pre>
+
+<div class="task">
+<strong>Validation challenge:</strong> Compare the PostgreSQL result with the original MySQL result. The schema may be different syntactically, but the intended behavior should be equivalent.
+</div>
+</section>
+
+<section>
+<h2>23. Optional Step 18 — Demonstrate that Schema Conversion does not migrate data</h2>
+<p>Run:</p>
+<pre><code>SELECT COUNT(*) FROM customers;
+SELECT COUNT(*) FROM products;
+SELECT COUNT(*) FROM orders;
+SELECT COUNT(*) FROM order_items;</code></pre>
+
+<p>Immediately after applying only the schema, these counts can be zero because schema conversion created the structure rather than moving the source rows.</p>
+
+<div class="svgbox">
+<svg viewBox="0 0 1080 260" width="100%" role="img" aria-label="Schema conversion versus data migration">
+<defs><marker id="a2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 z" fill="#2563eb"/></marker></defs>
+<rect x="30" y="65" width="210" height="100" rx="15" fill="#dbeafe" stroke="#2563eb"/>
+<text x="135" y="100" text-anchor="middle" font-weight="700" font-size="18">MySQL Source</text>
+<text x="135" y="128" text-anchor="middle" font-size="13">schema + data</text>
+<rect x="315" y="25" width="300" height="80" rx="15" fill="#d1fae5" stroke="#047857"/>
+<text x="465" y="60" text-anchor="middle" font-weight="700" font-size="17">DMS Schema Conversion</text>
+<text x="465" y="84" text-anchor="middle" font-size="12">schema / code only</text>
+<rect x="315" y="145" width="300" height="80" rx="15" fill="#fef3c7" stroke="#b45309"/>
+<text x="465" y="180" text-anchor="middle" font-weight="700" font-size="17">AWS DMS Replication Task</text>
+<text x="465" y="204" text-anchor="middle" font-size="12">data movement</text>
+<rect x="690" y="65" width="350" height="100" rx="15" fill="#ede9fe" stroke="#6d28d9"/>
+<text x="865" y="100" text-anchor="middle" font-weight="700" font-size="18">PostgreSQL Target</text>
+<text x="865" y="128" text-anchor="middle" font-size="13">converted schema + migrated data</text>
+<line x1="240" y1="92" x2="315" y2="65" stroke="#2563eb" stroke-width="3" marker-end="url(#a2)"/>
+<line x1="240" y1="140" x2="315" y2="185" stroke="#2563eb" stroke-width="3" marker-end="url(#a2)"/>
+<line x1="615" y1="65" x2="690" y2="92" stroke="#2563eb" stroke-width="3" marker-end="url(#a2)"/>
+<line x1="615" y1="185" x2="690" y2="138" stroke="#2563eb" stroke-width="3" marker-end="url(#a2)"/>
+</svg>
+</div>
+</section>
+
+<section>
+<h2>24. Optional Step 19 — Follow with an AWS DMS data migration task</h2>
+<p>Once the PostgreSQL schema is ready, create a normal AWS DMS replication task if the objective is to move the actual rows.</p>
+<table>
+<tr><th>Component</th><th>Role</th></tr>
+<tr><td>MySQL source endpoint</td><td>Reads source data</td></tr>
+<tr><td>PostgreSQL target endpoint</td><td>Writes target data</td></tr>
+<tr><td>DMS replication instance</td><td>Runs the data migration task</td></tr>
+<tr><td>Replication task</td><td>Performs full load and, if configured, CDC</td></tr>
+<tr><td>Schema Conversion project</td><td>Responsible for schema/code conversion, not the row movement itself</td></tr>
+</table>
+</section>
+
+<section>
+<h2>25. End-to-end lab checkpoint</h2>
+<table>
+<tr><th>Checkpoint</th><th>Done?</th><th>Evidence</th></tr>
+<tr><td>MySQL database created</td><td>☐</td><td><code>SHOW TABLES</code></td></tr>
+<tr><td>PostgreSQL target created</td><td>☐</td><td>RDS instance + database</td></tr>
+<tr><td>Secrets created</td><td>☐</td><td>Two secret ARNs</td></tr>
+<tr><td>Instance profile ready</td><td>☐</td><td>DMS status</td></tr>
+<tr><td>Source Data Provider created</td><td>☐</td><td>MySQL provider</td></tr>
+<tr><td>Target Data Provider created</td><td>☐</td><td>PostgreSQL provider</td></tr>
+<tr><td>Migration Project created</td><td>☐</td><td>Project name</td></tr>
+<tr><td>Connectivity verified</td><td>☐</td><td>Successful source/target tests</td></tr>
+<tr><td>Assessment completed</td><td>☐</td><td>Assessment summary</td></tr>
+<tr><td>Action items reviewed</td><td>☐</td><td>CSV/PDF or notes</td></tr>
+<tr><td>Schema converted</td><td>☐</td><td>Target SQL visible</td></tr>
+<tr><td>Source vs target compared</td><td>☐</td><td>Conversion worksheet</td></tr>
+<tr><td>Manual action item resolved</td><td>☐</td><td>Edited target SQL</td></tr>
+<tr><td>Apply Changes completed</td><td>☐</td><td>PostgreSQL objects exist</td></tr>
+<tr><td>PostgreSQL validation completed</td><td>☐</td><td>Validation SQL results</td></tr>
+</table>
+</section>
+
+<section>
+<h2>26. Troubleshooting</h2>
+<details>
+<summary>Data Provider connection test fails</summary>
+<p>Check VPC/subnet routing, security group inbound rules on MySQL 3306 and PostgreSQL 5432, NACLs, DNS, database availability and the secret/IAM configuration.</p>
+</details>
+<details>
+<summary>Target schema cannot be created</summary>
+<p>For RDS PostgreSQL, verify the Schema Conversion user has the privileges required by AWS, including <code>rds_superuser</code> for the documented RDS target scenario.</p>
+</details>
+<details>
+<summary>Action item remains after conversion</summary>
+<p>This is not necessarily an error. It means DMS identified a construct requiring attention. Read the recommendation, decide the target implementation, edit the converted SQL where appropriate, and validate the semantics.</p>
+</details>
+<details>
+<summary>Target tables exist but have no rows</summary>
+<p>This is expected if you only performed Schema Conversion + Apply Changes. Use a separate AWS DMS data migration task to migrate the data.</p>
+</details>
+<details>
+<summary>Generated SQL differs from the examples in this lab</summary>
+<p>The examples are representative teaching examples. DMS-generated SQL is the authoritative output for your actual source definition, target version and conversion configuration.</p>
+</details>
+</section>
+
+<section>
+<h2>27. Instructor-led discussion questions</h2>
+<ol>
+<li>Why does DMS need a Data Provider if the database credentials are already in Secrets Manager?</li>
+<li>What information belongs to the Data Provider versus the secret?</li>
+<li>Why should assessment happen before conversion?</li>
+<li>What is the difference between an automatically converted object and an action item?</li>
+<li>Why is <code>ON UPDATE CURRENT_TIMESTAMP</code> a good example of a semantic conversion problem?</li>
+<li>Why can an ENUM design require architecture judgment?</li>
+<li>Why should you review generated target SQL rather than automatically applying everything?</li>
+<li>Why can the target schema exist while target row counts are still zero?</li>
+<li>When would you export the converted SQL instead of using Apply Changes?</li>
+</ol>
+</section>
+
+<section>
+<h2>28. Final mental model</h2>
+<div class="svgbox">
+<svg viewBox="0 0 1120 230" width="100%" role="img" aria-label="Final mental model">
+<defs><marker id="a3" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 z" fill="#2563eb"/></marker></defs>
+<g font-family="Segoe UI,Arial">
+<rect x="25" y="65" width="145" height="80" rx="14" fill="#dbeafe" stroke="#2563eb"/><text x="97" y="99" text-anchor="middle" font-size="16" font-weight="700">Data Provider</text><text x="97" y="122" text-anchor="middle" font-size="12">Where/how?</text>
+<line x1="170" y1="105" x2="220" y2="105" stroke="#2563eb" stroke-width="3" marker-end="url(#a3)"/>
+<rect x="220" y="65" width="160" height="80" rx="14" fill="#ede9fe" stroke="#6d28d9"/><text x="300" y="99" text-anchor="middle" font-size="16" font-weight="700">Migration Project</text><text x="300" y="122" text-anchor="middle" font-size="12">ties components</text>
+<line x1="380" y1="105" x2="430" y2="105" stroke="#2563eb" stroke-width="3" marker-end="url(#a3)"/>
+<rect x="430" y="65" width="145" height="80" rx="14" fill="#fef3c7" stroke="#b45309"/><text x="502" y="99" text-anchor="middle" font-size="16" font-weight="700">Assess</text><text x="502" y="122" text-anchor="middle" font-size="12">what needs work?</text>
+<line x1="575" y1="105" x2="625" y2="105" stroke="#2563eb" stroke-width="3" marker-end="url(#a3)"/>
+<rect x="625" y="65" width="145" height="80" rx="14" fill="#d1fae5" stroke="#047857"/><text x="697" y="99" text-anchor="middle" font-size="16" font-weight="700">Convert</text><text x="697" y="122" text-anchor="middle" font-size="12">source → target SQL</text>
+<line x1="770" y1="105" x2="820" y2="105" stroke="#2563eb" stroke-width="3" marker-end="url(#a3)"/>
+<rect x="820" y="65" width="120" height="80" rx="14" fill="#f8fafc" stroke="#64748b"/><text x="880" y="99" text-anchor="middle" font-size="16" font-weight="700">Review</text><text x="880" y="122" text-anchor="middle" font-size="12">edit</text>
+<line x1="940" y1="105" x2="990" y2="105" stroke="#2563eb" stroke-width="3" marker-end="url(#a3)"/>
+<rect x="990" y="65" width="105" height="80" rx="14" fill="#dbeafe" stroke="#2563eb"/><text x="1042" y="99" text-anchor="middle" font-size="15" font-weight="700">Apply</text><text x="1042" y="122" text-anchor="middle" font-size="12">target DB</text>
+</g>
+</svg>
+</div>
+<p><strong>Remember:</strong></p>
+<ul>
+<li><strong>Data Provider</strong> = database connection/environment definition.</li>
+<li><strong>Migration Project</strong> = workspace connecting source, target, secrets and instance profile.</li>
+<li><strong>Assessment</strong> = identify conversion complexity and manual action items.</li>
+<li><strong>Conversion</strong> = generate target-compatible schema/code.</li>
+<li><strong>Review/Edit</strong> = resolve semantic differences and action items.</li>
+<li><strong>Apply Changes</strong> = create/update target schema and converted code.</li>
+<li><strong>DMS Replication Task</strong> = move the actual data.</li>
+</ul>
+</section>
+
+
+<section>
+<h2>30. Copy-ready SQL — MySQL source setup</h2>
+<p>This is the complete SQL from the lab file. Connect to the <strong>MySQL RDS endpoint</strong> from the CloudFormation Outputs tab using <code>dmsadmin</code>, then paste the entire block into MySQL Workbench or the MySQL CLI.</p>
+<div class="warn"><strong>Run this after CloudFormation reaches CREATE_COMPLETE.</strong> The SQL creates <code>saleslab</code>, four tables, a view and sample data.</div>
+<pre><code>-- AWS DMS Schema Conversion Lab V2
+-- MySQL source setup
+-- Run after the CloudFormation stack finishes and you can connect to MySQL.
+
+CREATE DATABASE IF NOT EXISTS saleslab;
+USE saleslab;
+
+CREATE TABLE IF NOT EXISTS customers (
+    customer_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    customer_name VARCHAR(100) NOT NULL,
+    email VARCHAR(150),
+    credit_limit DECIMAL(12,2),
+    is_active TINYINT(1) DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS products (
+    product_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    product_name VARCHAR(120) NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    category VARCHAR(50),
+    status ENUM(&#x27;ACTIVE&#x27;,&#x27;INACTIVE&#x27;) DEFAULT &#x27;ACTIVE&#x27;
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    order_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT UNSIGNED NOT NULL,
+    order_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(12,2),
+    status VARCHAR(20) DEFAULT &#x27;NEW&#x27;,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id)
+        REFERENCES customers(customer_id)
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    order_item_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT UNSIGNED NOT NULL,
+    product_id INT UNSIGNED NOT NULL,
+    quantity INT NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id)
+        REFERENCES orders(order_id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id)
+        REFERENCES products(product_id)
+);
+
+CREATE OR REPLACE VIEW customer_order_summary AS
+SELECT
+    c.customer_id,
+    c.customer_name,
+    COUNT(o.order_id) AS order_count,
+    IFNULL(SUM(o.total_amount), 0) AS total_spend
+FROM customers c
+LEFT JOIN orders o
+    ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.customer_name;
+
+INSERT INTO customers
+(customer_name, email, credit_limit, is_active)
+VALUES
+(&#x27;Alice Sharma&#x27;,&#x27;alice@example.com&#x27;,50000.00,1),
+(&#x27;Rahul Verma&#x27;,&#x27;rahul@example.com&#x27;,75000.00,1),
+(&#x27;Neha Singh&#x27;,&#x27;neha@example.com&#x27;,25000.00,1);
+
+INSERT INTO products
+(product_name, unit_price, category, status)
+VALUES
+(&#x27;Laptop&#x27;,65000.00,&#x27;Computers&#x27;,&#x27;ACTIVE&#x27;),
+(&#x27;Monitor&#x27;,18000.00,&#x27;Displays&#x27;,&#x27;ACTIVE&#x27;),
+(&#x27;Keyboard&#x27;,2500.00,&#x27;Accessories&#x27;,&#x27;ACTIVE&#x27;);
+
+INSERT INTO orders
+(customer_id,total_amount,status)
+VALUES
+(1,83000.00,&#x27;NEW&#x27;),
+(2,20500.00,&#x27;CONFIRMED&#x27;),
+(3,2500.00,&#x27;NEW&#x27;);
+
+INSERT INTO order_items
+(order_id,product_id,quantity,unit_price)
+VALUES
+(1,1,1,65000.00),
+(1,2,1,18000.00),
+(2,2,1,18000.00),
+(2,3,1,2500.00),
+(3,3,1,2500.00);
+
+SELECT * FROM customer_order_summary;</code></pre>
+</section>
+
+<section>
+<h2>31. Copy-ready SQL — PostgreSQL target preparation</h2>
+<p>The CloudFormation template already creates the <code>saleslab_pg</code> database and the <code>dmsadmin</code> master account. Therefore this script is <strong>optional</strong>. Use it only when you want a separate Schema Conversion user.</p>
+<div class="warn"><strong>Important:</strong> If you create <code>dms_sc_user</code> here, the DMS Migration Project created by CloudFormation still references the <code>dmsadmin</code> secret. You must deliberately update the secret/project credentials if you want DMS to use the new account.</div>
+<pre><code>-- AWS DMS Schema Conversion Lab V2
+-- PostgreSQL target preparation
+-- Run after connecting to the saleslab_pg database.
+-- AWS documents rds_superuser for RDS PostgreSQL as a DMS Schema Conversion target.
+
+-- If you are using the RDS master user created by the stack, it already has
+-- the required administrative privileges. If you create a separate user:
+
+CREATE ROLE dms_sc_user LOGIN PASSWORD &#x27;REPLACE_WITH_SECURE_PASSWORD&#x27;;
+
+GRANT CONNECT ON DATABASE saleslab_pg TO dms_sc_user;
+GRANT CREATE ON DATABASE saleslab_pg TO dms_sc_user;
+GRANT rds_superuser TO dms_sc_user;
+
+-- Do not create the converted sales tables manually for the main exercise.
+-- Let DMS Schema Conversion create them through:
+-- Migration Project -&gt; Schema conversion -&gt; Assess -&gt; Convert -&gt;
+-- Review/Edit -&gt; Apply Changes.</code></pre>
+</section>
+
+<section>
+<h2>32. Final fixed CloudFormation template — reference copy</h2>
+<p>This is the <strong>fixed</strong> CloudFormation template for the MySQL → PostgreSQL DMS Schema Conversion lab. It includes the IAM permissions required for DMS Schema Conversion to read the database credentials from Secrets Manager.</p>
+<div class="note"><strong>IAM fix:</strong> <code>DMSSecretsRole</code> trusts the regional DMS service principal (<code>dms.$&#123;AWS::Region&#125;.amazonaws.com</code>) and grants both <code>secretsmanager:GetSecretValue</code> and <code>secretsmanager:DescribeSecret</code> on the MySQL and PostgreSQL secrets.</div>
+<div class="note"><strong>S3 fix:</strong> the Schema Conversion S3 bucket has versioning enabled and the S3 access role includes the bucket/object permissions required for assessment reports, converted SQL and metadata.</div>
+<div class="warn"><strong>Lab security:</strong> TCP 3306 and 5432 are intentionally open to <code>0.0.0.0/0</code> for this temporary demo. Do not use this network exposure in production. Delete the CloudFormation stack after the lab.</div>
+<div class="warn"><strong>Password:</strong> the template contains a lab-only default password parameter. Replace it during deployment and never use this default in a real environment.</div>
+<pre><code>AWSTemplateFormatVersion: &#x27;2010-09-09&#x27;
+Description: &gt;
+  Low-cost AWS DMS Schema Conversion demo lab - MySQL to PostgreSQL.
+  Uses dynamically selected Availability Zones (no hard-coded AZ names).
+  Creates public RDS MySQL/PostgreSQL, DMS Schema Conversion resources,
+  Data Providers, Secrets Manager secrets, and an S3 conversion bucket.
+  LAB ONLY - do not use 0.0.0.0/0 in production.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: dms-sc-v2
+    Description: Prefix used for lab resource names.
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    Default: &#x27;DmsLab123!&#x27;
+    Description: Master password for both lab databases.
+
+  MySQLInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+    Description: Small MySQL instance for the demo.
+
+  PostgreSQLInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+    Description: Small PostgreSQL instance for the demo.
+
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.20.1.0/24
+
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.20.2.0/24
+
+  PublicSubnet3Cidr:
+    Type: String
+    Default: 10.20.3.0/24
+
+Resources:
+
+  # ------------------------------------------------------------
+  # Networking
+  # No hard-coded AvailabilityZone values are used.
+  # CloudFormation dynamically selects AZs from the Region.
+  # ------------------------------------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-vpc&#x27;
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-igw&#x27;
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs &#x27;&#x27;
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-public-1&#x27;
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs &#x27;&#x27;
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-public-2&#x27;
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet3Cidr
+      AvailabilityZone: !Select
+        - 2
+        - !GetAZs &#x27;&#x27;
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-public-3&#x27;
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-public-rt&#x27;
+
+  InternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1Route:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2Route:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PublicSubnet3Route:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet3
+
+  # ------------------------------------------------------------
+  # Security Group
+  # LAB ONLY: intentionally open to the Internet.
+  # ------------------------------------------------------------
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub &#x27;${ProjectName} MySQL PostgreSQL lab access&#x27;
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+          Description: LAB ONLY MySQL
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+          Description: LAB ONLY PostgreSQL
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # ------------------------------------------------------------
+  # RDS subnet group
+  # ------------------------------------------------------------
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub &#x27;${ProjectName} RDS subnet group&#x27;
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+        - !Ref PublicSubnet3
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # DMS subnet group for Schema Conversion instance profile
+  # ------------------------------------------------------------
+  DMSSubnetGroup:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    DependsOn:
+      - VPCGatewayAttachment
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub &#x27;${ProjectName}-dms-subnet-group&#x27;
+      ReplicationSubnetGroupDescription: !Sub &#x27;${ProjectName} DMS Schema Conversion subnet group&#x27;
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+        - !Ref PublicSubnet3
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # MySQL source
+  # ------------------------------------------------------------
+  MySQL:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub &#x27;${ProjectName}-mysql&#x27;
+      Engine: mysql
+      DBInstanceClass: !Ref MySQLInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp3
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeleteAutomatedBackups: true
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+      DBName: saleslab
+      MasterUsername: dmsadmin
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-mysql&#x27;
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # PostgreSQL target
+  # ------------------------------------------------------------
+  PostgreSQL:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub &#x27;${ProjectName}-postgres&#x27;
+      Engine: postgres
+      DBInstanceClass: !Ref PostgreSQLInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp3
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeleteAutomatedBackups: true
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+      DBName: saleslab_pg
+      MasterUsername: dmsadmin
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub &#x27;${ProjectName}-postgres&#x27;
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # Secrets Manager
+  # ------------------------------------------------------------
+  MySQLSecret:
+    Type: AWS::SecretsManager::Secret
+    DependsOn: MySQL
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Name: !Sub &#x27;${ProjectName}/mysql-secret&#x27;
+      Description: !Sub &#x27;DMS MySQL credentials for ${ProjectName}&#x27;
+      SecretString: !Sub |
+        {
+          &quot;username&quot;: &quot;dmsadmin&quot;,
+          &quot;password&quot;: &quot;${DBPassword}&quot;,
+          &quot;port&quot;: &quot;3306&quot;,
+          &quot;host&quot;: &quot;${MySQL.Endpoint.Address}&quot;
+        }
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  PostgreSQLSecret:
+    Type: AWS::SecretsManager::Secret
+    DependsOn: PostgreSQL
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Name: !Sub &#x27;${ProjectName}/postgres-secret&#x27;
+      Description: !Sub &#x27;DMS PostgreSQL credentials for ${ProjectName}&#x27;
+      SecretString: !Sub |
+        {
+          &quot;username&quot;: &quot;dmsadmin&quot;,
+          &quot;password&quot;: &quot;${DBPassword}&quot;,
+          &quot;port&quot;: &quot;5432&quot;,
+          &quot;host&quot;: &quot;${PostgreSQL.Endpoint.Address}&quot;
+        }
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # DMS role to read the database secrets
+  # ------------------------------------------------------------
+  DMSSecretsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-dms-secrets-role&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - !Sub &#x27;dms.${AWS::Region}.amazonaws.com&#x27;
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: ReadDMSLabSecrets
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !Ref MySQLSecret
+                  - !Ref PostgreSQLSecret
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # S3 bucket for DMS Schema Conversion artifacts
+  # ------------------------------------------------------------
+  SchemaConversionBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteLabArtifacts
+            Status: Enabled
+            ExpirationInDays: 7
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  SchemaConversionS3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-sc-s3-role&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dms.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: DMSchemaConversionS3Access
+          PolicyDocument:
+            Version: &#x27;2012-10-17&#x27;
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                Resource: !GetAtt SchemaConversionBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub &#x27;${SchemaConversionBucket.Arn}/*&#x27;
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # DMS VPC service role
+  # ------------------------------------------------------------
+  DMSVPCRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &#x27;${ProjectName}-dms-vpc-role&#x27;
+      AssumeRolePolicyDocument:
+        Version: &#x27;2012-10-17&#x27;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dms.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # DMS Schema Conversion instance profile
+  # ------------------------------------------------------------
+  SchemaConversionInstanceProfile:
+    Type: AWS::DMS::InstanceProfile
+    DependsOn:
+      - DMSSubnetGroup
+      - DMSVPCRole
+    Properties:
+      InstanceProfileIdentifier: !Sub &#x27;${ProjectName}-sc-profile&#x27;
+      InstanceProfileName: !Sub &#x27;${ProjectName}-sc-profile&#x27;
+      Description: !Sub &#x27;${ProjectName} schema conversion profile&#x27;
+      NetworkType: IPV4
+      PubliclyAccessible: true
+      SubnetGroupIdentifier: !Ref DMSSubnetGroup
+      VpcSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+
+  # ------------------------------------------------------------
+  # Source Data Provider - MySQL
+  # ------------------------------------------------------------
+  MySQLDataProvider:
+    Type: AWS::DMS::DataProvider
+    DependsOn:
+      - MySQL
+    Properties:
+      DataProviderIdentifier: !Sub &#x27;${ProjectName}-mysql-source&#x27;
+      DataProviderName: !Sub &#x27;${ProjectName}-mysql-source&#x27;
+      Description: MySQL source data provider
+      Engine: mysql
+      ExactSettings: true
+      Settings:
+        MySqlSettings:
+          ServerName: !GetAtt MySQL.Endpoint.Address
+          Port: 3306
+          SslMode: none
+
+  # ------------------------------------------------------------
+  # Target Data Provider - PostgreSQL
+  # ------------------------------------------------------------
+  PostgreSQLDataProvider:
+    Type: AWS::DMS::DataProvider
+    DependsOn:
+      - PostgreSQL
+    Properties:
+      DataProviderIdentifier: !Sub &#x27;${ProjectName}-postgres-target&#x27;
+      DataProviderName: !Sub &#x27;${ProjectName}-postgres-target&#x27;
+      Description: PostgreSQL target data provider
+      Engine: postgres
+      ExactSettings: true
+      Settings:
+        PostgreSqlSettings:
+          ServerName: !GetAtt PostgreSQL.Endpoint.Address
+          Port: 5432
+          DatabaseName: saleslab_pg
+          SslMode: none
+
+  # ------------------------------------------------------------
+  # DMS Migration Project
+  # ------------------------------------------------------------
+  MigrationProject:
+    Type: AWS::DMS::MigrationProject
+    DependsOn:
+      - SchemaConversionInstanceProfile
+      - MySQLDataProvider
+      - PostgreSQLDataProvider
+      - MySQLSecret
+      - PostgreSQLSecret
+      - DMSSecretsRole
+      - SchemaConversionS3Role
+    Properties:
+      MigrationProjectIdentifier: !Sub &#x27;${ProjectName}-project&#x27;
+      MigrationProjectName: !Sub &#x27;${ProjectName}-project&#x27;
+      Description: !Sub &#x27;${ProjectName} MySQL to PostgreSQL schema conversion&#x27;
+      InstanceProfileIdentifier: !Ref SchemaConversionInstanceProfile
+      SourceDataProviderDescriptors:
+        - DataProviderIdentifier: !Ref MySQLDataProvider
+          SecretsManagerSecretId: !Ref MySQLSecret
+          SecretsManagerAccessRoleArn: !GetAtt DMSSecretsRole.Arn
+      TargetDataProviderDescriptors:
+        - DataProviderIdentifier: !Ref PostgreSQLDataProvider
+          SecretsManagerSecretId: !Ref PostgreSQLSecret
+          SecretsManagerAccessRoleArn: !GetAtt DMSSecretsRole.Arn
+      SchemaConversionApplicationAttributes:
+        S3BucketPath: !Sub &#x27;s3://${SchemaConversionBucket}&#x27;
+        S3BucketRoleArn: !GetAtt SchemaConversionS3Role.Arn
+      Tags:
+        - Key: Purpose
+          Value: DMS-Schema-Conversion-Lab
+        - Key: Source
+          Value: MySQL
+        - Key: Target
+          Value: PostgreSQL
+
+Outputs:
+  VpcId:
+    Description: Lab VPC
+    Value: !Ref VPC
+
+  DatabaseSecurityGroupId:
+    Description: Security group allowing MySQL and PostgreSQL from 0.0.0.0/0
+    Value: !GetAtt DatabaseSecurityGroup.GroupId
+
+  MySQLEndpoint:
+    Description: Public MySQL endpoint
+    Value: !GetAtt MySQL.Endpoint.Address
+
+  MySQLPort:
+    Description: MySQL port
+    Value: !GetAtt MySQL.Endpoint.Port
+
+  MySQLDatabase:
+    Description: MySQL database name
+    Value: saleslab
+
+  MySQLConnectionExample:
+    Description: Example MySQL connection
+    Value: !Sub &#x27;mysql -h ${MySQL.Endpoint.Address} -P 3306 -u dmsadmin -p saleslab&#x27;
+
+  PostgreSQLEndpoint:
+    Description: Public PostgreSQL endpoint
+    Value: !GetAtt PostgreSQL.Endpoint.Address
+
+  PostgreSQLPort:
+    Description: PostgreSQL port
+    Value: !GetAtt PostgreSQL.Endpoint.Port
+
+  PostgreSQLDatabase:
+    Description: PostgreSQL database name
+    Value: saleslab_pg
+
+  PostgreSQLConnectionExample:
+    Description: Example PostgreSQL connection
+    Value: !Sub &#x27;psql -h ${PostgreSQL.Endpoint.Address} -p 5432 -U dmsadmin -d saleslab_pg&#x27;
+
+  MySQLSecretArn:
+    Description: MySQL Secrets Manager ARN
+    Value: !Ref MySQLSecret
+
+  PostgreSQLSecretArn:
+    Description: PostgreSQL Secrets Manager ARN
+    Value: !Ref PostgreSQLSecret
+
+  DMSInstanceProfile:
+    Description: DMS Schema Conversion instance profile
+    Value: !Ref SchemaConversionInstanceProfile
+
+  MySQLDataProvider:
+    Description: DMS MySQL source Data Provider
+    Value: !Ref MySQLDataProvider
+
+  PostgreSQLDataProvider:
+    Description: DMS PostgreSQL target Data Provider
+    Value: !Ref PostgreSQLDataProvider
+
+  MigrationProject:
+    Description: DMS Schema Conversion migration project
+    Value: !Ref MigrationProject
+
+  SchemaConversionBucket:
+    Description: S3 bucket used for DMS Schema Conversion artifacts
+    Value: !Ref SchemaConversionBucket
+</code></pre>
+</section>
+
+<section>
+<h2>33. Troubleshooting — DMS cannot access Secrets Manager</h2>
+<p>If CloudFormation or DMS reports <code>AccessDeniedFault</code> with a message similar to <em>“DMS can't find the secret with your database credentials or an IAM role to access Secrets Manager”</em>, verify the following items in order.</p>
+<h3>33.1 Verify the secrets exist in the same Region</h3>
+<p>For this lab, the CloudFormation stack creates:</p>
+<ul>
+<li><code>dms-sc-v2/mysql-secret</code></li>
+<li><code>dms-sc-v2/postgres-secret</code></li>
+</ul>
+<p>The secrets must be in the same AWS Region as the DMS migration project. AWS documents this Region requirement for DMS Schema Conversion.</p>
+<h3>33.2 Verify the secret-access role</h3>
+<p>The role created by the template is:</p>
+<pre><code>dms-sc-v2-dms-secrets-role</code></pre>
+<p>Its permissions must include both:</p>
+<pre><code>secretsmanager:GetSecretValue
+secretsmanager:DescribeSecret</code></pre>
+<p>The role trust policy must allow AWS DMS to assume the role. The fixed template uses the regional service principal.</p>
+<h3>33.3 Verify the migration project wiring</h3>
+<p>The Migration Project must associate each Data Provider with its Secrets Manager secret and the secret-access role:</p>
+<pre><code>SecretsManagerSecretId: !Ref MySQLSecret
+SecretsManagerAccessRoleArn: !GetAtt DMSSecretsRole.Arn
+
+SecretsManagerSecretId: !Ref PostgreSQLSecret
+SecretsManagerAccessRoleArn: !GetAtt DMSSecretsRole.Arn</code></pre>
+<h3>33.4 Verify the identity creating/updating the DMS resource</h3>
+<p>AWS also requires the identity making the relevant DMS API calls to have permission to retrieve/validate the role and secret. In particular, verify <code>iam:GetRole</code>, <code>iam:PassRole</code>, and <code>secretsmanager:DescribeSecret</code> as applicable to the CloudFormation execution identity.</p>
+<pre><code>aws iam get-role --role-name dms-sc-v2-dms-secrets-role
+
+aws secretsmanager describe-secret --secret-id dms-sc-v2/mysql-secret --region $AWS_REGION
+aws secretsmanager describe-secret --secret-id dms-sc-v2/postgres-secret --region $AWS_REGION</code></pre>
+<h3>33.5 Verify the S3 Schema Conversion bucket</h3>
+<p>The Schema Conversion S3 bucket must have versioning enabled. The fixed template enables versioning automatically.</p>
+<h3>33.6 What changed from the previous template?</h3>
+<table>
+<tr><th>Area</th><th>Previous template</th><th>Fixed template</th></tr>
+<tr><td>Secrets Manager policy</td><td><code>GetSecretValue</code> only</td><td><code>GetSecretValue</code> + <code>DescribeSecret</code></td></tr>
+<tr><td>DMS trust relationship</td><td><code>dms.amazonaws.com</code></td><td>Regional DMS principal using <code>AWS::Region</code></td></tr>
+<tr><td>S3 bucket</td><td>Versioning not enabled</td><td>Versioning enabled</td></tr>
+<tr><td>S3 access role</td><td>Basic object access</td><td>Bucket location/versioning plus object/version permissions</td></tr>
+</table>
+<p class="note"><strong>AWS reference:</strong> AWS DMS Schema Conversion requires Secrets Manager access roles with <code>GetSecretValue</code> and <code>DescribeSecret</code>, and an S3 bucket with versioning enabled. citeturn0search0turn0search1</p>
+</section>
+
+<section>
+<h2>34. AWS documentation</h2>
+<ul>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/schema-conversion.html" target="_blank">Using DMS Schema Conversion</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/getting-started.html" target="_blank">Getting started with DMS Schema Conversion</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/getting-started-project.html" target="_blank">Create a migration project</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/getting-started-assessment.html" target="_blank">Create an assessment report</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/schema-conversion-convert.html" target="_blank">Converting database schemas — step by step</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/schema-conversion-save-apply.html" target="_blank">Saving and applying converted code</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/data-providers-postgresql.html" target="_blank">PostgreSQL target privileges for Schema Conversion</a></li>
+</ul>
+</section>
+
+<div class="footer">
+  AWS DMS Schema Conversion Lab V2 · MySQL → PostgreSQL · Updated Demo_No_AZ template · Trainer-ready standalone HTML · Examples should be verified against the generated SQL in the current AWS DMS console.
+</div>
+
+</div>
+</body>
+</html>

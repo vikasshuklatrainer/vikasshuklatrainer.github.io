@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS DMS Lab CloudFormation Template Documentation</title>
+<style>
+:root{
+  --bg:#f5f7fb; --card:#fff; --ink:#172033; --muted:#5d687a;
+  --blue:#1769aa; --blue2:#eaf4ff; --green:#13795b; --green2:#eaf8f3;
+  --orange:#a85d00; --orange2:#fff5e6; --red:#a52828; --red2:#fff0f0;
+  --border:#dce2ea; --code:#111827; --shadow:0 5px 20px rgba(23,32,51,.07);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.6}
+header{background:linear-gradient(135deg,#102a43,#1769aa);color:white;padding:48px 7%;position:relative;overflow:hidden}
+header:after{content:"";position:absolute;width:420px;height:420px;border:70px solid rgba(255,255,255,.07);border-radius:50%;right:-120px;top:-170px}
+header h1{font-size:38px;margin:0 0 10px}
+header p{font-size:18px;max-width:900px;opacity:.92}
+.container{width:min(1180px,92%);margin:30px auto}
+nav{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:var(--shadow);position:sticky;top:12px;z-index:2}
+nav strong{display:block;margin-bottom:8px}
+nav a{color:var(--blue);text-decoration:none;margin-right:18px;line-height:2}
+section{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;margin:24px 0;box-shadow:var(--shadow)}
+h2{font-size:27px;margin-top:0;color:#123b63}
+h3{color:#234d70;margin-top:26px}
+.callout{padding:16px 18px;border-radius:10px;margin:16px 0;border-left:5px solid}
+.info{background:var(--blue2);border-color:var(--blue)}
+.good{background:var(--green2);border-color:var(--green)}
+.warn{background:var(--orange2);border-color:var(--orange)}
+.risk{background:var(--red2);border-color:var(--red)}
+table{width:100%;border-collapse:collapse;margin:15px 0;font-size:14px}
+th,td{border:1px solid var(--border);padding:10px;text-align:left;vertical-align:top}
+th{background:#edf2f7;color:#183b56}
+code{background:#eef1f5;padding:2px 5px;border-radius:4px}
+pre{background:var(--code);color:#e5e7eb;padding:18px;border-radius:10px;overflow:auto;font-size:13px}
+.diagram{background:#fbfcfe;border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
+svg{max-width:100%;height:auto}
+.badge{display:inline-block;padding:4px 9px;border-radius:999px;background:#e8f1fb;color:#175a8a;font-size:12px;font-weight:600;margin:3px}
+.resource{font-family:Consolas,monospace;color:#0f5f91}
+footer{text-align:center;color:var(--muted);padding:35px}
+.small{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AWS DMS Lab CloudFormation Template</h1>
+  <p>Technical documentation for the supplied CloudFormation template. The template is documented as-is; no resources have been removed or redesigned.</p>
+  <span class="badge">AWS CloudFormation</span>
+  <span class="badge">Amazon VPC</span>
+  <span class="badge">Amazon RDS PostgreSQL</span>
+  <span class="badge">AWS Lambda</span>
+  <span class="badge">Amazon S3</span>
+  <span class="badge">EC2</span>
+  <span class="badge">AWS DMS Lab Support</span>
+</header>
+
+<div class="container">
+<nav>
+<strong>Contents</strong>
+<a href="#overview">1. Overview</a>
+<a href="#architecture">2. Architecture</a>
+<a href="#parameters">3. Parameters</a>
+<a href="#s3">4. S3 Bootstrap</a>
+<a href="#vpc">5. Network</a>
+<a href="#ec2">6. EC2</a>
+<a href="#rds">7. RDS PostgreSQL</a>
+<a href="#security">8. Security Groups</a>
+<a href="#cdc">9. CDC Lambda</a>
+<a href="#iam">10. IAM</a>
+<a href="#cleanup">11. Cleanup</a>
+<a href="#lifecycle">12. Stack Lifecycle</a>
+<a href="#outputs">13. Outputs</a>
+<a href="#dms">14. DMS Usage</a>
+<a href="#troubleshoot">15. Troubleshooting</a>
+</nav>
+
+<section id="overview">
+<h2>1. Template Overview</h2>
+<p>This CloudFormation template provisions the infrastructure used by an AWS Database Migration Service (DMS) laboratory. It creates the source-side PostgreSQL environment, networking, supporting Lambda functions, sample-data initialization mechanism, and S3 package staging.</p>
+<div class="callout info"><strong>Important:</strong> The supplied template does not define an <code>AWS::DMS::ReplicationInstance</code>, DMS endpoints, or a DMS replication task. Those DMS objects are expected to be created separately for the migration exercise.</div>
+
+<table>
+<tr><th>Area</th><th>Resources in the template</th><th>Purpose</th></tr>
+<tr><td>CloudFormation</td><td>Parameters, Conditions, Outputs, Custom Resources</td><td>Controls deployment and lifecycle</td></tr>
+<tr><td>S3</td><td><code>DMSLabCFNS3Bucket</code></td><td>Stack-owned bucket for Lambda package/data handling</td></tr>
+<tr><td>Lambda</td><td><code>LambdaCopySource</code>, <code>GenerateCDCData</code>, <code>S3BucketHandler</code></td><td>Bootstrap, CDC generation and S3 cleanup</td></tr>
+<tr><td>VPC</td><td><code>DMSInstructorVPC</code></td><td>10.0.0.0/16 lab network</td></tr>
+<tr><td>Subnets</td><td>RDSSubNet, EC2SubNet, RDSSubNet2</td><td>Database, EC2 and second database subnet</td></tr>
+<tr><td>EC2</td><td><code>DMSLabInstance</code></td><td>PostgreSQL client and sample database loader</td></tr>
+<tr><td>RDS</td><td><code>RDSDMSLabDB</code></td><td>PostgreSQL source database</td></tr>
+<tr><td>Security</td><td><code>DMSLabSG</code>, <code>DMSLabDBSG</code></td><td>Network access control</td></tr>
+<tr><td>RDS configuration</td><td><code>DMSLabDBPG</code></td><td>Logical replication / WAL-related settings</td></tr>
+</table>
+</section>
+
+<section id="architecture">
+<h2>2. Overall Architecture</h2>
+<div class="diagram">
+<svg viewBox="0 0 1100 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AWS DMS lab architecture">
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="25" y="25" width="1050" height="540" rx="22" fill="#f3f8fd" stroke="#9bb9d3" stroke-width="2"/>
+<text x="55" y="60" font-size="25" font-weight="700" fill="#123b63">AWS Account / DMS Lab</text>
+
+<rect x="55" y="90" width="245" height="105" rx="15" fill="#fff" stroke="#9bb9d3"/>
+<text x="75" y="122" font-size="18" font-weight="700">Amazon S3</text>
+<text x="75" y="150" font-size="14">Source ZIP → lab bucket</text>
+<text x="75" y="174" font-size="13">Lambda package staging</text>
+
+<rect x="335" y="90" width="220" height="105" rx="15" fill="#fff" stroke="#9bb9d3"/>
+<text x="355" y="122" font-size="18" font-weight="700">Lambda</text>
+<text x="355" y="150" font-size="14">CopySource</text>
+<text x="355" y="174" font-size="13">Custom resource bootstrap</text>
+<line x1="300" y1="142" x2="335" y2="142" stroke="#1769aa" stroke-width="3" marker-end="url(#a)"/>
+
+<rect x="55" y="225" width="990" height="285" rx="20" fill="#fff" stroke="#6f93b1" stroke-width="2"/>
+<text x="80" y="258" font-size="20" font-weight="700" fill="#123b63">VPC 10.0.0.0/16</text>
+
+<rect x="85" y="285" width="270" height="175" rx="14" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="105" y="315" font-size="17" font-weight="700">EC2 Subnet</text>
+<text x="105" y="342" font-size="14">10.0.0.0/24</text>
+<text x="105" y="374" font-size="16" font-weight="700">EC2 t3.micro</text>
+<text x="105" y="400" font-size="13">PostgreSQL client</text>
+<text x="105" y="421" font-size="13">Loads sample database</text>
+
+<rect x="395" y="285" width="285" height="175" rx="14" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="415" y="315" font-size="17" font-weight="700">RDS Subnets</text>
+<text x="415" y="342" font-size="14">10.0.1.0/24</text>
+<text x="415" y="362" font-size="14">10.0.2.0/24</text>
+<text x="415" y="395" font-size="16" font-weight="700">RDS PostgreSQL</text>
+<text x="415" y="421" font-size="13">sportstickets : 5432</text>
+<text x="415" y="442" font-size="13">Logical replication enabled</text>
+
+<rect x="720" y="285" width="285" height="175" rx="14" fill="#fff8ed" stroke="#c79b57"/>
+<text x="740" y="315" font-size="17" font-weight="700">Lambda CDC</text>
+<text x="740" y="345" font-size="14">GenerateCDCData</text>
+<text x="740" y="375" font-size="13">VPC-enabled</text>
+<text x="740" y="400" font-size="13">Targets RDS endpoint</text>
+<text x="740" y="425" font-size="13">Generates changes for CDC</text>
+
+<line x1="355" y1="370" x2="395" y2="370" stroke="#1769aa" stroke-width="3" marker-end="url(#a)"/>
+<line x1="680" y1="370" x2="720" y2="370" stroke="#1769aa" stroke-width="3" marker-end="url(#a)"/>
+
+<rect x="270" y="525" width="560" height="30" rx="10" fill="#eaf4ff"/>
+<text x="550" y="546" text-anchor="middle" font-size="14" fill="#174d75">AWS DMS is created separately and consumes the RDS source</text>
+</svg>
+</div>
+</section>
+
+<section id="parameters">
+<h2>3. Parameters and Condition</h2>
+<table>
+<tr><th>Parameter</th><th>Default</th><th>Role</th></tr>
+<tr><td><code>LatestAmiId</code></td><td>Amazon Linux 2023 SSM public parameter</td><td>Resolves the EC2 AMI</td></tr>
+<tr><td><code>SourceBucket</code></td><td><code>ws-assets-prod-iad-r-iad-ed304a55c2ca1aee</code></td><td>Source location of the ZIP package</td></tr>
+<tr><td><code>SourceKey</code></td><td><code>976050cc-0606-4b23-b49f-ca7b8ac4b153/v1/dmslambda_v1.zip</code></td><td>S3 object/key used by bootstrap and CDC Lambda code</td></tr>
+<tr><td><code>PermissionsBoundaryArn</code></td><td>Empty</td><td>Optional IAM permissions boundary</td></tr>
+</table>
+<p>The <code>SetPermissionsBoundary</code> condition becomes true when a non-empty permissions-boundary ARN is supplied. It is then applied to the IAM roles that expose the <code>PermissionsBoundary</code> property.</p>
+</section>
+
+<section id="s3">
+<h2>4. S3 Bootstrap and Lambda Package Copy</h2>
+<p>The template creates <code>DMSLabCFNS3Bucket</code>. A Lambda function named <code>LambdaCopySource</code> acts as a CloudFormation custom resource.</p>
+<div class="diagram">
+<svg viewBox="0 0 1000 250" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="b" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#13795b"/></marker></defs>
+<rect x="30" y="70" width="210" height="100" rx="14" fill="#fff" stroke="#9bb9d3"/>
+<text x="135" y="105" text-anchor="middle" font-size="17" font-weight="700">Source S3</text>
+<text x="135" y="132" text-anchor="middle" font-size="13">SourceBucket / SourceKey</text>
+<rect x="395" y="70" width="210" height="100" rx="14" fill="#fff" stroke="#9bb9d3"/>
+<text x="500" y="105" text-anchor="middle" font-size="17" font-weight="700">LambdaCopySource</text>
+<text x="500" y="132" text-anchor="middle" font-size="13">Custom Resource</text>
+<rect x="760" y="70" width="210" height="100" rx="14" fill="#fff" stroke="#9bb9d3"/>
+<text x="865" y="105" text-anchor="middle" font-size="17" font-weight="700">Lab S3 Bucket</text>
+<text x="865" y="132" text-anchor="middle" font-size="13">DMSLabCFNS3Bucket</text>
+<line x1="240" y1="120" x2="395" y2="120" stroke="#13795b" stroke-width="3" marker-end="url(#b)"/>
+<line x1="605" y1="120" x2="760" y2="120" stroke="#13795b" stroke-width="3" marker-end="url(#b)"/>
+</svg>
+</div>
+<p>On Create or Update, the Lambda performs an S3 copy operation. On Delete, it deletes the copied object. The custom resource is therefore part of the CloudFormation lifecycle.</p>
+</section>
+
+<section id="vpc">
+<h2>5. VPC and Network Components</h2>
+<table>
+<tr><th>Resource</th><th>Configuration</th></tr>
+<tr><td><code>DMSInstructorVPC</code></td><td>10.0.0.0/16, DNS support and hostnames enabled</td></tr>
+<tr><td><code>RDSSubNet</code></td><td>10.0.1.0/24, first Availability Zone</td></tr>
+<tr><td><code>EC2SubNet</code></td><td>10.0.0.0/24, first Availability Zone</td></tr>
+<tr><td><code>RDSSubNet2</code></td><td>10.0.2.0/24, second Availability Zone</td></tr>
+<tr><td><code>DMSLabIGW</code></td><td>Internet Gateway</td></tr>
+<tr><td><code>DMSLabRouteTable</code></td><td>Route table associated with all three subnets</td></tr>
+<tr><td><code>InternetRoute</code></td><td>0.0.0.0/0 through Internet Gateway</td></tr>
+<tr><td><code>DMSLabDHCPOptions</code></td><td>AmazonProvidedDNS with ec2.internal domain</td></tr>
+</table>
+<div class="callout info"><strong>Network flow:</strong> The template associates all three subnets with the route table containing the default Internet route. The EC2 instance also requests a public IP address.</div>
+</section>
+
+<section id="ec2">
+<h2>6. EC2 PostgreSQL Initialization Host</h2>
+<p><code>DMSLabInstance</code> is an Amazon Linux 2023 <code>t3.micro</code> instance with a primary private IP of <code>10.0.0.40</code> and a public IP association.</p>
+<h3>User-data sequence</h3>
+<ol>
+<li>Runs <code>dnf update -y</code>.</li>
+<li>Installs <code>postgresql15</code> and <code>git</code>.</li>
+<li>Clones <code>aws-database-migration-samples</code> if not already present.</li>
+<li>Moves to the PostgreSQL sample database directory.</li>
+<li>Sets the PostgreSQL password environment variable.</li>
+<li>Gets the RDS endpoint address.</li>
+<li>Runs <code>install-postgresql.sql</code> using <code>psql</code>.</li>
+</ol>
+<pre>dnf update -y
+dnf install postgresql15 git -y
+git clone https://github.com/aws-samples/aws-database-migration-samples.git
+export PGPASSWORD=admin123
+psql --host=&lt;RDS endpoint&gt; --port=5432 \
+     --dbname=sportstickets --username=adminuser \
+     -f install-postgresql.sql</pre>
+</section>
+
+<section id="rds">
+<h2>7. RDS PostgreSQL Source Database</h2>
+<table>
+<tr><th>Property</th><th>Value in supplied template</th></tr>
+<tr><td>Resource</td><td><code>RDSDMSLabDB</code></td></tr>
+<tr><td>Engine</td><td>PostgreSQL</td></tr>
+<tr><td>EngineVersion</td><td>18.1</td></tr>
+<tr><td>Instance class</td><td>db.t3.micro</td></tr>
+<tr><td>Storage</td><td>30 GB, gp2</td></tr>
+<tr><td>Database</td><td>sportstickets</td></tr>
+<tr><td>Port</td><td>5432</td></tr>
+<tr><td>Master username</td><td>adminuser</td></tr>
+<tr><td>PubliclyAccessible</td><td>true</td></tr>
+<tr><td>Backup retention</td><td>7 days</td></tr>
+<tr><td>Subnet group</td><td><code>DMSLabDefaultDBSubnet</code></td></tr>
+<tr><td>Parameter group</td><td><code>DMSLabDBPG</code></td></tr>
+</table>
+
+<h3>Logical replication settings</h3>
+<pre>rds.logical_replication = 1
+wal_sender_timeout = 0
+max_wal_senders = 20
+max_replication_slots = 50
+rds.force_ssl = 0</pre>
+<p>These settings are part of the supplied template's PostgreSQL source configuration and are relevant to the lab's replication/CDC scenario.</p>
+</section>
+
+<section id="security">
+<h2>8. Security Groups and Network Access</h2>
+<table>
+<tr><th>Rule</th><th>Source</th><th>Port</th><th>Purpose</th></tr>
+<tr><td>EC2 inbound</td><td>0.0.0.0/0</td><td>TCP 22</td><td>SSH to lab EC2</td></tr>
+<tr><td>RDS inbound</td><td>EC2 security group</td><td>TCP 5432</td><td>EC2 → PostgreSQL</td></tr>
+<tr><td>RDS inbound</td><td>10.0.0.5/32</td><td>TCP 5432</td><td>Specific source access defined by template</td></tr>
+<tr><td>EC2 outbound</td><td>0.0.0.0/0</td><td>All</td><td>Outbound access</td></tr>
+<tr><td>RDS outbound</td><td>0.0.0.0/0</td><td>All</td><td>Outbound access</td></tr>
+</table>
+<div class="callout warn"><strong>Lab-security note:</strong> This documentation intentionally preserves the template as supplied. The SSH rule permits TCP/22 from <code>0.0.0.0/0</code>, and the RDS instance is publicly accessible. These are characteristics of the current template, not changes made by this document.</div>
+</section>
+
+<section id="cdc">
+<h2>9. GenerateCDCData Lambda</h2>
+<p>The <code>GenerateCDCData</code> Lambda is deployed after <code>CopySourceObject</code>. Its code is stored in the stack-created S3 bucket and its environment contains the RDS endpoint:</p>
+<pre>HOST: !GetAtt RDSDMSLabDB.Endpoint.Address</pre>
+<p>The function is configured for VPC execution using the EC2 subnet and the lab security group.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 1050 330" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="c" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#a85d00"/></marker></defs>
+<rect x="40" y="80" width="230" height="130" rx="15" fill="#fff" stroke="#9bb9d3"/>
+<text x="155" y="115" text-anchor="middle" font-size="18" font-weight="700">GenerateCDCData</text>
+<text x="155" y="145" text-anchor="middle" font-size="14">Lambda</text>
+<text x="155" y="175" text-anchor="middle" font-size="13">VPC-enabled</text>
+<rect x="410" y="80" width="230" height="130" rx="15" fill="#fff" stroke="#72aa91"/>
+<text x="525" y="115" text-anchor="middle" font-size="18" font-weight="700">RDS PostgreSQL</text>
+<text x="525" y="145" text-anchor="middle" font-size="14">sportstickets</text>
+<text x="525" y="175" text-anchor="middle" font-size="13">Logical replication</text>
+<rect x="780" y="80" width="230" height="130" rx="15" fill="#fff" stroke="#9bb9d3"/>
+<text x="895" y="115" text-anchor="middle" font-size="18" font-weight="700">AWS DMS</text>
+<text x="895" y="145" text-anchor="middle" font-size="14">Created separately</text>
+<text x="895" y="175" text-anchor="middle" font-size="13">Full Load + CDC</text>
+<line x1="270" y1="145" x2="410" y2="145" stroke="#a85d00" stroke-width="3" marker-end="url(#c)"/>
+<text x="340" y="130" text-anchor="middle" font-size="12">DB changes</text>
+<line x1="640" y1="145" x2="780" y2="145" stroke="#a85d00" stroke-width="3" marker-end="url(#c)"/>
+<text x="710" y="130" text-anchor="middle" font-size="12">CDC source</text>
+<text x="525" y="270" text-anchor="middle" font-size="15" fill="#5d687a">The template prepares the source environment; DMS migration objects are outside this template.</text>
+</svg>
+</div>
+</section>
+
+<section id="iam">
+<h2>10. IAM Roles</h2>
+<table>
+<tr><th>Role</th><th>Used by</th><th>Key permissions</th></tr>
+<tr><td><code>LambdaCopySourceRole</code></td><td>LambdaCopySource</td><td>S3 GetObject, PutObject, DeleteObject and CloudWatch Logs</td></tr>
+<tr><td><code>LambdaExecutionRole</code></td><td>GenerateCDCData</td><td>RDS access, CloudWatch Logs, EC2 network-interface actions</td></tr>
+<tr><td><code>LambdaRole</code></td><td>S3BucketHandler</td><td>S3 DeleteObject, ListBucket and CloudWatch Logs</td></tr>
+</table>
+<p>The optional permissions boundary is conditionally attached to roles where configured through <code>PermissionsBoundaryArn</code>.</p>
+</section>
+
+<section id="cleanup">
+<h2>11. S3 Cleanup Custom Resource</h2>
+<p>CloudFormation normally cannot delete a non-empty S3 bucket. The template addresses this with <code>S3BucketHandler</code> and the custom resource <code>EmptyDMSLabCFNS3Bucket</code>.</p>
+<div class="diagram">
+<svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="d" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#a52828"/></marker></defs>
+<rect x="35" y="65" width="210" height="90" rx="14" fill="#fff" stroke="#d7a0a0"/>
+<text x="140" y="102" text-anchor="middle" font-size="17" font-weight="700">Delete Stack</text>
+<text x="140" y="127" text-anchor="middle" font-size="13">CloudFormation</text>
+<rect x="345" y="65" width="210" height="90" rx="14" fill="#fff" stroke="#d7a0a0"/>
+<text x="450" y="102" text-anchor="middle" font-size="17" font-weight="700">S3BucketHandler</text>
+<text x="450" y="127" text-anchor="middle" font-size="13">Custom Resource</text>
+<rect x="655" y="65" width="210" height="90" rx="14" fill="#fff" stroke="#d7a0a0"/>
+<text x="760" y="102" text-anchor="middle" font-size="17" font-weight="700">Empty Bucket</text>
+<text x="760" y="127" text-anchor="middle" font-size="13">Delete objects</text>
+<line x1="245" y1="110" x2="345" y2="110" stroke="#a52828" stroke-width="3" marker-end="url(#d)"/>
+<line x1="555" y1="110" x2="655" y2="110" stroke="#a52828" stroke-width="3" marker-end="url(#d)"/>
+</svg>
+</div>
+</section>
+
+<section id="lifecycle">
+<h2>12. CloudFormation Lifecycle</h2>
+<table>
+<tr><th>Phase</th><th>Important behavior</th></tr>
+<tr><td>Create</td><td>Creates VPC/network, S3 bucket, IAM roles, RDS, EC2 and Lambda resources; copies the source package through the custom resource.</td></tr>
+<tr><td>Update</td><td>The source-copy custom resource can copy the specified object again when invoked by CloudFormation.</td></tr>
+<tr><td>Runtime</td><td>EC2 initializes the PostgreSQL sample database. GenerateCDCData is available to generate database changes.</td></tr>
+<tr><td>Delete</td><td>S3 cleanup custom resource empties the stack bucket so CloudFormation can remove it.</td></tr>
+</table>
+</section>
+
+<section id="outputs">
+<h2>13. CloudFormation Outputs</h2>
+<table>
+<tr><th>Output</th><th>Value</th><th>Use</th></tr>
+<tr><td><code>DMSInstanceEndpoint</code></td><td>RDS endpoint address</td><td>Use as the PostgreSQL source endpoint host when configuring DMS.</td></tr>
+<tr><td><code>CDCFuntion</code></td><td>GenerateCDCData Lambda ARN</td><td>Identifies the Lambda used for CDC-data generation.</td></tr>
+</table>
+</section>
+
+<section id="dms">
+<h2>14. Using the Template with AWS DMS</h2>
+<p>Once the CloudFormation stack is successfully deployed, the resulting RDS endpoint can be used as the source side of the DMS lab.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 1100 360" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="e" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="40" y="90" width="230" height="130" rx="15" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="155" y="125" text-anchor="middle" font-size="18" font-weight="700">RDS PostgreSQL</text>
+<text x="155" y="155" text-anchor="middle" font-size="14">sportstickets</text>
+<text x="155" y="183" text-anchor="middle" font-size="13">DMS source</text>
+<rect x="435" y="65" width="230" height="180" rx="15" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="550" y="105" text-anchor="middle" font-size="18" font-weight="700">AWS DMS</text>
+<text x="550" y="138" text-anchor="middle" font-size="14">Replication Instance</text>
+<text x="550" y="168" text-anchor="middle" font-size="14">Source Endpoint</text>
+<text x="550" y="198" text-anchor="middle" font-size="14">Target Endpoint</text>
+<text x="550" y="228" text-anchor="middle" font-size="14">Replication Task</text>
+<rect x="830" y="90" width="230" height="130" rx="15" fill="#fff8ed" stroke="#c79b57"/>
+<text x="945" y="125" text-anchor="middle" font-size="18" font-weight="700">Target DB</text>
+<text x="945" y="155" text-anchor="middle" font-size="14">External to this template</text>
+<text x="945" y="183" text-anchor="middle" font-size="13">Destination</text>
+<line x1="270" y1="155" x2="435" y2="155" stroke="#1769aa" stroke-width="3" marker-end="url(#e)"/>
+<line x1="665" y1="155" x2="830" y2="155" stroke="#1769aa" stroke-width="3" marker-end="url(#e)"/>
+<text x="352" y="140" text-anchor="middle" font-size="13">Source endpoint</text>
+<text x="747" y="140" text-anchor="middle" font-size="13">Target endpoint</text>
+<text x="550" y="315" text-anchor="middle" font-size="16" fill="#234d70">Typical lab task: Full Load → verify data → enable/observe CDC</text>
+</svg>
+</div>
+
+<h3>Suggested DMS lab sequence</h3>
+<ol>
+<li>Deploy the supplied CloudFormation template.</li>
+<li>Wait for the RDS PostgreSQL instance and EC2 initialization to complete.</li>
+<li>Retrieve the <code>DMSInstanceEndpoint</code> CloudFormation output.</li>
+<li>Create the DMS source endpoint using PostgreSQL and the RDS endpoint.</li>
+<li>Create the target endpoint for the selected target database.</li>
+<li>Create a DMS replication task for Full Load or Full Load + CDC.</li>
+<li>Run the task and validate the target data.</li>
+<li>Use the supplied CDC-generation mechanism to create source-side changes and observe DMS CDC behavior.</li>
+</ol>
+<div class="callout info"><strong>Scope boundary:</strong> Steps 4–8 describe how the template fits into the DMS exercise. The DMS resources themselves are not defined in this CloudFormation template.</div>
+</section>
+
+<section id="troubleshoot">
+<h2>15. Troubleshooting Guide</h2>
+<table>
+<tr><th>Symptom</th><th>Check</th></tr>
+<tr><td>EC2 cannot connect to RDS</td><td>Verify RDS security group ingress on TCP 5432 from <code>DMSLabSG</code>, subnet routing and RDS availability.</td></tr>
+<tr><td>Sample database is not populated</td><td>Inspect EC2 user-data/cloud-init logs and verify that the RDS endpoint is resolvable and reachable.</td></tr>
+<tr><td>DMS cannot connect to PostgreSQL</td><td>Verify the DMS replication instance networking, source endpoint host/port, credentials, RDS security group, and PostgreSQL replication configuration.</td></tr>
+<tr><td>Lambda VPC execution fails</td><td>Check Lambda VPC subnet/security-group configuration and required network-interface permissions in its execution role.</td></tr>
+<tr><td>Stack deletion fails on S3</td><td>Check <code>S3BucketHandler</code> and the <code>EmptyDMSLabCFNS3Bucket</code> custom resource.</td></tr>
+<tr><td>Source package copy fails</td><td>Verify <code>SourceBucket</code>, <code>SourceKey</code>, and the permissions on <code>LambdaCopySourceRole</code>.</td></tr>
+</table>
+</section>
+
+<section>
+<h2>16. Resource Inventory</h2>
+<p>The supplied template contains the following logical resources:</p>
+<pre>DMSLabCFNS3Bucket
+LambdaCopySourceRole
+LambdaCopySource
+CopySourceObject
+DMSInstructorVPC
+RDSSubNet
+EC2SubNet
+RDSSubNet2
+DMSLabIGW
+DMSLabDHCPOptions
+DMSLabRouteTable
+DMSLabInstance
+RDSDMSLabDB
+DMSLabDefaultDBSubnet
+DMSLabDBPG
+DMSLabSG
+DMSLabDBSG
+DMSLabGWAttachement
+SubnetRoute1
+SubnetRoute2
+SubnetRoute3
+InternetRoute
+DHCPAssociation
+SGIngress1
+SGIngress2
+SGIngress3
+SGEgress1
+SGEgress2
+GenerateCDCData
+LambdaExecutionRole
+LambdaRole
+S3BucketHandler
+EmptyDMSLabCFNS3Bucket</pre>
+</section>
+
+<section>
+<h2>17. Template Traceability</h2>
+<p>This document is based directly on the supplied CloudFormation template. The template contains 517 lines and includes the parameters, IAM roles, Lambda bootstrap code, VPC/subnets, EC2 initialization, RDS PostgreSQL configuration, security groups, CDC Lambda, S3 cleanup Lambda and outputs described above.</p>
+<div class="callout good"><strong>Template preserved as-is:</strong> This documentation does not remove, replace, or redesign any resource in the supplied template.</div>
+</section>
+
+</div>
+<footer>
+AWS DMS Lab • CloudFormation Template Documentation<br>
+Generated from the supplied template • Architecture diagrams are embedded SVG
+</footer>
+</body>
+</html>

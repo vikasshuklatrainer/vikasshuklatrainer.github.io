@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab: AWS DMS Data Provider & Schema Conversion — MySQL to PostgreSQL</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--ink:#172033;--muted:#5b6475;--blue:#2563eb;--purple:#7c3aed;--green:#15803d;--orange:#c2410c;--border:#dbe2ea;--dark:#101827}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Segoe UI,Arial,sans-serif;line-height:1.55}
+.wrap{max-width:1200px;margin:auto;padding:28px}.hero{background:linear-gradient(135deg,#111827,#312e81);color:#fff;padding:38px;border-radius:18px;box-shadow:0 10px 28px #0002}.hero h1{font-size:34px;margin:0 0 10px}.hero p{max-width:980px;color:#e5e7eb;font-size:17px}.badge{display:inline-block;background:#ffffff1c;padding:6px 11px;border-radius:999px;margin:4px;font-size:13px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:22px;margin:18px 0;box-shadow:0 4px 14px #0000000a}
+h2{margin-top:38px;border-bottom:2px solid var(--border);padding-bottom:8px}h3{margin-top:25px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:16px}.box{border:1px solid var(--border);border-radius:11px;padding:16px;background:#fff}
+.note{padding:14px 17px;border-radius:10px;margin:15px 0}.info{background:#eff6ff;border-left:5px solid var(--blue)}.good{background:#f0fdf4;border-left:5px solid #16a34a}.warn{background:#fff7ed;border-left:5px solid #f97316}
+.step{border-left:5px solid var(--blue);background:#fff;padding:15px 18px;margin:13px 0;border-radius:9px}.num{font-weight:700;color:var(--blue)}
+pre{background:var(--dark);color:#e5eefb;padding:17px;border-radius:10px;overflow:auto;font:13px/1.5 Consolas,monospace}
+table{width:100%;border-collapse:collapse;background:#fff}th,td{border:1px solid var(--border);padding:10px;text-align:left;vertical-align:top}th{background:#f1f5f9}
+.small{font-size:13px;color:var(--muted)}svg{max-width:100%;height:auto}.footer{margin-top:35px;padding:18px 0;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<section class="hero">
+<h1>Hands-On Lab: AWS DMS Data Provider & Schema Conversion</h1>
+<p><strong>MySQL → PostgreSQL</strong> heterogeneous database migration lab. You will create source and target data providers, configure an instance profile and Secrets Manager credentials, create a migration project, run an assessment, convert a MySQL schema to PostgreSQL, review the converted SQL, and optionally apply it to the PostgreSQL target.</p>
+<div><span class="badge">No Oracle</span><span class="badge">MySQL → PostgreSQL</span><span class="badge">DMS Schema Conversion</span><span class="badge">Data Providers</span><span class="badge">Migration Project</span><span class="badge">Hands-on</span></div>
+</section>
+
+<div class="note info"><strong>Important distinction:</strong> DMS Schema Conversion converts database schema and supported code objects; it does <strong>not</strong> migrate table data. AWS states that MySQL → PostgreSQL is a supported Schema Conversion path. After schema conversion, use AWS DMS data migration/replication to move the actual rows. citeturn0search5turn0search6</div>
+
+<h2>1. Lab Objectives</h2>
+<div class="card">
+<ul>
+<li>Understand what a <strong>Data Provider</strong> represents.</li>
+<li>Create a <strong>MySQL source data provider</strong>.</li>
+<li>Create a <strong>PostgreSQL target data provider</strong>.</li>
+<li>Create an AWS DMS <strong>instance profile</strong>.</li>
+<li>Store database credentials in <strong>AWS Secrets Manager</strong>.</li>
+<li>Create a DMS <strong>migration project</strong>.</li>
+<li>Run a <strong>conversion assessment</strong>.</li>
+<li>Convert a MySQL schema into PostgreSQL-compatible schema/code.</li>
+<li>Review conversion action items.</li>
+<li>Apply the converted schema to PostgreSQL or export the generated SQL.</li>
+<li>Understand how Schema Conversion connects to the later DMS data-migration task.</li>
+</ul>
+</div>
+
+<h2>2. Lab Architecture</h2>
+<div class="card">
+<svg viewBox="0 0 1150 500" aria-label="MySQL to PostgreSQL DMS Schema Conversion architecture">
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#334155"/></marker></defs>
+<rect x="20" y="20" width="1110" height="455" rx="20" fill="#f8fafc" stroke="#cbd5e1"/>
+<rect x="55" y="135" width="205" height="115" rx="15" fill="#fff" stroke="#64748b" stroke-width="2"/>
+<text x="157" y="170" text-anchor="middle" font-size="20" font-weight="700">MySQL</text><text x="157" y="198" text-anchor="middle" font-size="13">Source database</text><text x="157" y="220" text-anchor="middle" font-size="13">3306</text>
+<rect x="315" y="105" width="205" height="175" rx="15" fill="#7c3aed"/>
+<text x="417" y="145" text-anchor="middle" fill="#fff" font-size="20" font-weight="700">Source</text><text x="417" y="172" text-anchor="middle" fill="#fff" font-size="18" font-weight="700">Data Provider</text><text x="417" y="205" text-anchor="middle" fill="#fff" font-size="13">MySQL</text><text x="417" y="228" text-anchor="middle" fill="#fff" font-size="13">server + port + DB</text>
+<rect x="575" y="75" width="250" height="235" rx="16" fill="#2563eb"/>
+<text x="700" y="118" text-anchor="middle" fill="#fff" font-size="21" font-weight="700">Migration Project</text>
+<text x="700" y="148" text-anchor="middle" fill="#fff" font-size="14">DMS Schema Conversion</text><text x="700" y="180" text-anchor="middle" fill="#fff" font-size="13">Assessment</text><text x="700" y="203" text-anchor="middle" fill="#fff" font-size="13">Schema conversion</text><text x="700" y="226" text-anchor="middle" fill="#fff" font-size="13">Review / edit SQL</text><text x="700" y="249" text-anchor="middle" fill="#fff" font-size="13">Apply / export</text>
+<rect x="880" y="105" width="205" height="175" rx="15" fill="#7c3aed"/>
+<text x="982" y="145" text-anchor="middle" fill="#fff" font-size="20" font-weight="700">Target</text><text x="982" y="172" text-anchor="middle" fill="#fff" font-size="18" font-weight="700">Data Provider</text><text x="982" y="205" text-anchor="middle" fill="#fff" font-size="13">PostgreSQL</text><text x="982" y="228" text-anchor="middle" fill="#fff" font-size="13">server + port + DB</text>
+<rect x="415" y="355" width="270" height="65" rx="12" fill="#fff" stroke="#60a5fa" stroke-width="2"/><text x="550" y="382" text-anchor="middle" font-size="15" font-weight="700">DMS Instance Profile</text><text x="550" y="402" text-anchor="middle" font-size="12">Network + security settings</text>
+<rect x="735" y="355" width="270" height="65" rx="12" fill="#fff" stroke="#86efac" stroke-width="2"/><text x="870" y="382" text-anchor="middle" font-size="15" font-weight="700">Secrets Manager</text><text x="870" y="402" text-anchor="middle" font-size="12">DB credentials</text>
+<line x1="260" y1="192" x2="315" y2="192" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><line x1="520" y1="192" x2="575" y2="192" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><line x1="825" y1="192" x2="880" y2="192" stroke="#334155" stroke-width="3" marker-end="url(#a)"/>
+<line x1="700" y1="310" x2="550" y2="355" stroke="#334155" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#a)"/>
+<line x1="700" y1="310" x2="870" y2="355" stroke="#334155" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#a)"/>
+</svg>
+<p class="small">AWS describes the Schema Conversion workflow using three core resources: an instance profile, data providers, and a migration project. Database credentials are stored in Secrets Manager rather than in the data provider itself. citeturn0search6turn0search1</p>
+</div>
+
+<h2>3. Lab Environment</h2>
+<div class="card">
+<table>
+<tr><th>Component</th><th>Example</th><th>Purpose</th></tr>
+<tr><td>Source</td><td>Amazon RDS for MySQL</td><td>MySQL schema to convert</td></tr>
+<tr><td>Source port</td><td>3306</td><td>MySQL connection</td></tr>
+<tr><td>Target</td><td>Amazon RDS for PostgreSQL</td><td>Converted schema destination</td></tr>
+<tr><td>Target port</td><td>5432</td><td>PostgreSQL connection</td></tr>
+<tr><td>Source Data Provider</td><td><code>lab-mysql-source</code></td><td>Describes MySQL source</td></tr>
+<tr><td>Target Data Provider</td><td><code>lab-postgres-target</code></td><td>Describes PostgreSQL target</td></tr>
+<tr><td>Instance Profile</td><td><code>lab-dms-sc-profile</code></td><td>Network/security configuration</td></tr>
+<tr><td>Migration Project</td><td><code>mysql-to-postgres-lab</code></td><td>Joins source, target and instance profile</td></tr>
+</table>
+<div class="note warn"><strong>Cost:</strong> RDS instances, networking, DMS resources and related services can incur charges. Delete lab resources when finished.</div>
+</div>
+
+<h2>4. Prerequisites</h2>
+<div class="card">
+<ul>
+<li>AWS account with permissions to use AWS DMS, IAM, Secrets Manager and RDS.</li>
+<li>A MySQL database reachable from the DMS Schema Conversion networking environment.</li>
+<li>A PostgreSQL database reachable from the DMS Schema Conversion networking environment.</li>
+<li>Preferably place both databases in the same VPC or configure the required routing/security rules.</li>
+<li>Security groups must allow MySQL TCP/3306 and PostgreSQL TCP/5432 from the appropriate DMS networking source.</li>
+<li>AWS DMS Schema Conversion requires appropriate network connectivity between DMS and the source/target databases. citeturn0search0</li>
+</ul>
+</div>
+
+<h2>5. Create the MySQL Sample Database</h2>
+<div class="card">
+<p>Use the following small business schema. It deliberately includes common MySQL data types and objects so students can inspect how they are represented in PostgreSQL.</p>
+<pre><code>CREATE DATABASE saleslab;
+
+USE saleslab;
+
+CREATE TABLE customers (
+    customer_id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_name VARCHAR(100) NOT NULL,
+    email VARCHAR(150),
+    credit_limit DECIMAL(12,2),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE products (
+    product_id INT AUTO_INCREMENT PRIMARY KEY,
+    product_name VARCHAR(120) NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    category VARCHAR(50)
+);
+
+CREATE TABLE orders (
+    order_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    order_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(12,2),
+    status VARCHAR(20) DEFAULT 'NEW',
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id)
+        REFERENCES customers(customer_id)
+);
+
+CREATE TABLE order_items (
+    order_item_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id)
+        REFERENCES orders(order_id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id)
+        REFERENCES products(product_id)
+);
+
+INSERT INTO customers
+(customer_name,email,credit_limit,is_active)
+VALUES
+('Alice Sharma','alice@example.com',50000.00,TRUE),
+('Rahul Verma','rahul@example.com',75000.00,TRUE),
+('Neha Singh','neha@example.com',25000.00,FALSE);
+
+INSERT INTO products
+(product_name,unit_price,category)
+VALUES
+('Laptop',65000.00,'Electronics'),
+('Monitor',18000.00,'Electronics'),
+('Keyboard',2500.00,'Accessories');
+
+INSERT INTO orders
+(customer_id,total_amount,status)
+VALUES
+(1,67500.00,'NEW'),
+(2,20000.00,'SHIPPED');
+
+INSERT INTO order_items
+(order_id,product_id,quantity,unit_price)
+VALUES
+(1,1,1,65000.00),
+(1,3,1,2500.00),
+(2,2,1,18000.00),
+(2,3,1,2500.00);</code></pre>
+</div>
+
+<h2>6. Create the PostgreSQL Target Database</h2>
+<div class="card">
+<div class="step"><span class="num">Step 6.1</span> Create an Amazon RDS for PostgreSQL instance, or use an existing PostgreSQL instance.</div>
+<div class="step"><span class="num">Step 6.2</span> Create the target database:</div>
+<pre><code>CREATE DATABASE saleslab;</code></pre>
+<div class="step"><span class="num">Step 6.3</span> Create a user for Schema Conversion and grant the privileges required by your target configuration.</div>
+<pre><code>-- Example only. Use your organization's password policy.
+CREATE USER dms_sc_user WITH PASSWORD 'ChangeMe_StrongPassword';
+
+GRANT CONNECT ON DATABASE saleslab TO dms_sc_user;
+GRANT CREATE ON DATABASE saleslab TO dms_sc_user;</code></pre>
+<p>AWS documents <code>CONNECT</code> and <code>CREATE</code> on the target database as minimum privileges for PostgreSQL Schema Conversion; RDS for PostgreSQL has additional role requirements documented by AWS. citeturn0search8</p>
+</div>
+
+<h2>7. Store Database Credentials in AWS Secrets Manager</h2>
+<div class="card">
+<p>DMS Schema Conversion uses Secrets Manager for database credentials. AWS's migration-project workflow associates a secret and IAM role with each data provider. citeturn0search13</p>
+
+<h3>7.1 MySQL Secret</h3>
+<pre><code>{
+  "username": "dms_sc_user",
+  "password": "YOUR_MYSQL_PASSWORD",
+  "engine": "mysql",
+  "host": "YOUR_MYSQL_ENDPOINT",
+  "port": 3306,
+  "dbname": "saleslab"
+}</code></pre>
+
+<h3>7.2 PostgreSQL Secret</h3>
+<pre><code>{
+  "username": "dms_sc_user",
+  "password": "YOUR_POSTGRES_PASSWORD",
+  "engine": "postgres",
+  "host": "YOUR_POSTGRES_ENDPOINT",
+  "port": 5432,
+  "dbname": "saleslab"
+}</code></pre>
+
+<div class="step"><span class="num">Console:</span> AWS Console → Secrets Manager → Store a new secret → Other type of secret → enter the database credentials → give clear names such as <code>dms-lab/mysql</code> and <code>dms-lab/postgres</code>.</div>
+</div>
+
+<h2>8. Create the DMS Schema Conversion Instance Profile</h2>
+<div class="card">
+<p>The instance profile supplies the network and security settings that DMS Schema Conversion uses to connect to the databases and protect conversion data. citeturn0search6</p>
+<div class="step"><span class="num">Step 8.1</span> Open <strong>AWS DMS → Instance profiles</strong>.</div>
+<div class="step"><span class="num">Step 8.2</span> Choose <strong>Create instance profile</strong>.</div>
+<div class="step"><span class="num">Step 8.3</span> Name it <code>lab-dms-sc-profile</code>.</div>
+<div class="step"><span class="num">Step 8.4</span> Select the VPC containing the database instances.</div>
+<div class="step"><span class="num">Step 8.5</span> Select appropriate subnets and security group(s).</div>
+<div class="step"><span class="num">Step 8.6</span> Configure encryption/security settings according to the lab environment.</div>
+<div class="step"><span class="num">Step 8.7</span> Create the instance profile.</div>
+<div class="note info">For a training environment, keeping MySQL, PostgreSQL and the DMS networking components in one VPC can make routing and security-group troubleshooting substantially easier.</div>
+</div>
+
+<h2>9. Create the MySQL Source Data Provider</h2>
+<div class="card">
+<p>AWS supports MySQL as a source data provider for DMS Schema Conversion, with PostgreSQL as a supported target. AWS documents MySQL source privileges including <code>SELECT ON *.*</code> and <code>SHOW VIEW ON *.*</code>. citeturn0search5</p>
+<div class="step"><span class="num">Step 9.1</span> Open <strong>AWS DMS → Data providers → Create data provider</strong>.</div>
+<div class="step"><span class="num">Step 9.2</span> Name: <code>lab-mysql-source</code>.</div>
+<div class="step"><span class="num">Step 9.3</span> Purpose: <strong>Schema Conversion</strong>.</div>
+<div class="step"><span class="num">Step 9.4</span> Engine type: <strong>MySQL</strong>.</div>
+<div class="step"><span class="num">Step 9.5</span> Enter the MySQL server name, port <code>3306</code>, and database name <code>saleslab</code>.</div>
+<div class="step"><span class="num">Step 9.6</span> Configure SSL according to the lab requirement.</div>
+<div class="step"><span class="num">Step 9.7</span> Create the data provider.</div>
+<div class="note warn"><strong>Do not put the database password into the data provider.</strong> AWS documents that credentials are stored separately in Secrets Manager and associated with the migration project. citeturn0search1</div>
+</div>
+
+<h2>10. Create the PostgreSQL Target Data Provider</h2>
+<div class="card">
+<div class="step"><span class="num">Step 10.1</span> Choose <strong>Data providers → Create data provider</strong>.</div>
+<div class="step"><span class="num">Step 10.2</span> Name: <code>lab-postgres-target</code>.</div>
+<div class="step"><span class="num">Step 10.3</span> Purpose: <strong>Schema Conversion</strong>.</div>
+<div class="step"><span class="num">Step 10.4</span> Engine type: <strong>PostgreSQL</strong>.</div>
+<div class="step"><span class="num">Step 10.5</span> Enter the PostgreSQL server name, port <code>5432</code>, and database <code>saleslab</code>.</div>
+<div class="step"><span class="num">Step 10.6</span> Create the data provider.</div>
+<p>AWS supports PostgreSQL as a target for DMS Schema Conversion. citeturn0search11turn0search8</p>
+</div>
+
+<h2>11. Create IAM Access for Secrets Manager</h2>
+<div class="card">
+<p>The migration project needs an IAM role that allows DMS to retrieve the database credentials from Secrets Manager. The exact managed/custom permissions should follow the current AWS DMS Schema Conversion setup for your account and Region.</p>
+<p>Conceptually:</p>
+<pre><code>Migration Project
+       |
+       +---- Source Secret
+       |
+       +---- Target Secret
+       |
+       v
+IAM Role
+       |
+       +---- secretsmanager:GetSecretValue
+       +---- required KMS decrypt permission
+             (if using a customer-managed KMS key)</code></pre>
+<div class="note good">Use a dedicated role and scope secret/KMS permissions to the specific lab secrets rather than granting unrestricted access to every secret in the account.</div>
+</div>
+
+<h2>12. Create the Migration Project</h2>
+<div class="card">
+<svg viewBox="0 0 1120 360" aria-label="Migration project diagram">
+<defs><marker id="g" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#334155"/></marker></defs>
+<rect x="40" y="25" width="1040" height="300" rx="18" fill="#fff" stroke="#cbd5e1"/>
+<rect x="80" y="110" width="210" height="95" rx="14" fill="#fff" stroke="#7c3aed" stroke-width="2"/>
+<text x="185" y="145" text-anchor="middle" font-size="17" font-weight="700">MySQL Data Provider</text><text x="185" y="174" text-anchor="middle" font-size="13">lab-mysql-source</text>
+<rect x="450" y="75" width="250" height="170" rx="15" fill="#2563eb"/>
+<text x="575" y="120" text-anchor="middle" fill="#fff" font-size="21" font-weight="700">Migration Project</text><text x="575" y="150" text-anchor="middle" fill="#fff" font-size="14">mysql-to-postgres-lab</text><text x="575" y="180" text-anchor="middle" fill="#fff" font-size="13">Source + Target</text><text x="575" y="202" text-anchor="middle" fill="#fff" font-size="13">Instance Profile</text><text x="575" y="224" text-anchor="middle" fill="#fff" font-size="13">Secrets + rules</text>
+<rect x="820" y="110" width="210" height="95" rx="14" fill="#fff" stroke="#7c3aed" stroke-width="2"/>
+<text x="925" y="145" text-anchor="middle" font-size="17" font-weight="700">PostgreSQL Data Provider</text><text x="925" y="174" text-anchor="middle" font-size="13">lab-postgres-target</text>
+<line x1="290" y1="158" x2="450" y2="158" stroke="#334155" stroke-width="3" marker-end="url(#g)"/><line x1="700" y1="158" x2="820" y2="158" stroke="#334155" stroke-width="3" marker-end="url(#g)"/>
+</svg>
+<div class="step"><span class="num">Step 12.1</span> Open <strong>AWS DMS → Migration projects → Create migration project</strong>.</div>
+<div class="step"><span class="num">Step 12.2</span> Name: <code>mysql-to-postgres-lab</code>.</div>
+<div class="step"><span class="num">Step 12.3</span> Select instance profile: <code>lab-dms-sc-profile</code>.</div>
+<div class="step"><span class="num">Step 12.4</span> Source: <code>lab-mysql-source</code>.</div>
+<div class="step"><span class="num">Step 12.5</span> Select the MySQL Secrets Manager secret and its IAM role.</div>
+<div class="step"><span class="num">Step 12.6</span> Target: <code>lab-postgres-target</code>.</div>
+<div class="step"><span class="num">Step 12.7</span> Select the PostgreSQL Secrets Manager secret and its IAM role.</div>
+<div class="step"><span class="num">Step 12.8</span> Create the migration project.</div>
+<p>AWS's documented workflow is to create a migration project using the source data provider, target data provider, instance profile and Secrets Manager credentials. citeturn0search13</p>
+</div>
+
+<h2>13. Test Connectivity</h2>
+<div class="card">
+<p>Before conversion, verify that DMS can connect to both databases.</p>
+<table>
+<tr><th>Test</th><th>Expected Result</th></tr>
+<tr><td>MySQL source connection</td><td>Successful connection to <code>saleslab</code></td></tr>
+<tr><td>PostgreSQL target connection</td><td>Successful connection to <code>saleslab</code></td></tr>
+<tr><td>Security group</td><td>3306 and 5432 accessible from the DMS networking path</td></tr>
+<tr><td>Secrets Manager</td><td>Credentials retrieved successfully</td></tr>
+</table>
+<div class="note warn">If connectivity fails, troubleshoot networking before attempting schema conversion. Common causes are security-group rules, subnet routing, DNS, incorrect endpoint/port, or incorrect Secrets Manager configuration.</div>
+</div>
+
+<h2>14. Create the Conversion Assessment Report</h2>
+<div class="card">
+<p>AWS DMS Schema Conversion can assess the migration complexity before conversion and identify objects that require manual attention. citeturn0search3turn0search6</p>
+<div class="step"><span class="num">Step 14.1</span> Open the <code>mysql-to-postgres-lab</code> migration project.</div>
+<div class="step"><span class="num">Step 14.2</span> Select the source schema/database.</div>
+<div class="step"><span class="num">Step 14.3</span> Run the <strong>assessment report</strong>.</div>
+<div class="step"><span class="num">Step 14.4</span> Review automatically convertible objects and conversion action items.</div>
+<div class="step"><span class="num">Step 14.5</span> Record examples of objects that require manual changes.</div>
+</div>
+
+<h2>15. Convert the MySQL Schema</h2>
+<div class="card">
+<div class="step"><span class="num">Step 15.1</span> In the migration project, choose the MySQL source schema.</div>
+<div class="step"><span class="num">Step 15.2</span> Start <strong>Convert</strong>.</div>
+<div class="step"><span class="num">Step 15.3</span> Wait for conversion to complete.</div>
+<div class="step"><span class="num">Step 15.4</span> Inspect tables, views, routines and other supported objects.</div>
+<div class="step"><span class="num">Step 15.5</span> Compare source and converted SQL.</div>
+<p>AWS states that Schema Conversion creates a local version of converted database objects, which can be reviewed, edited, applied to the target, or saved/exported as SQL. citeturn0search3</p>
+</div>
+
+<h2>16. What Should Students Look For?</h2>
+<div class="card">
+<table>
+<tr><th>MySQL Source</th><th>What to Observe in PostgreSQL Conversion</th></tr>
+<tr><td><code>AUTO_INCREMENT</code></td><td>PostgreSQL-compatible identity/sequence representation.</td></tr>
+<tr><td><code>DATETIME</code></td><td>PostgreSQL timestamp-compatible representation.</td></tr>
+<tr><td><code>DECIMAL</code></td><td>PostgreSQL numeric-compatible representation.</td></tr>
+<tr><td><code>BOOLEAN</code></td><td>PostgreSQL boolean representation.</td></tr>
+<tr><td>Foreign keys</td><td>Equivalent PostgreSQL constraints where supported.</td></tr>
+<tr><td>Views/routines</td><td>Inspect converted SQL and action items carefully.</td></tr>
+</table>
+<div class="note info">The exact generated SQL depends on the source objects, database versions, conversion settings and AWS DMS conversion engine. Treat the table above as an observation checklist, not as a promise of exact generated syntax.</div>
+</div>
+
+<h2>17. Apply the Converted Schema</h2>
+<div class="card">
+<p>You have two useful training options:</p>
+<div class="grid">
+<div class="box"><h3>Option A — Apply</h3><p>Use DMS Schema Conversion to apply the converted code directly to the PostgreSQL target.</p></div>
+<div class="box"><h3>Option B — Export</h3><p>Save/export the converted SQL, inspect it, make manual changes if required, then execute it against PostgreSQL.</p></div>
+</div>
+<p>AWS supports both applying converted code to the target and exporting converted code for review/editing. citeturn0search3turn0search6</p>
+<div class="note good"><strong>Recommended classroom exercise:</strong> Export the generated SQL first. Ask students to identify three MySQL-to-PostgreSQL differences before applying the schema.</div>
+</div>
+
+<h2>18. Validate the PostgreSQL Schema</h2>
+<div class="card">
+<p>Connect to PostgreSQL and run:</p>
+<pre><code>\c saleslab
+
+\dt
+
+\d customers
+\d products
+\d orders
+\d order_items</code></pre>
+<p>Check that the expected tables and constraints exist.</p>
+<pre><code>SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+ORDER BY table_name;</code></pre>
+<div class="note info"><strong>Remember:</strong> At this point you have converted/applied the <strong>schema</strong>. The data rows are not automatically migrated just because Schema Conversion completed.</div>
+</div>
+
+<h2>19. Next Stage — Move the Data with AWS DMS</h2>
+<div class="card">
+<svg viewBox="0 0 1120 420" aria-label="Schema conversion followed by data migration">
+<defs><marker id="h" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#334155"/></marker></defs>
+<rect x="35" y="25" width="1050" height="365" rx="18" fill="#fff" stroke="#cbd5e1"/>
+<rect x="75" y="90" width="215" height="120" rx="15" fill="#7c3aed"/><text x="182" y="128" text-anchor="middle" fill="#fff" font-size="19" font-weight="700">1. Schema Conversion</text><text x="182" y="158" text-anchor="middle" fill="#fff" font-size="13">MySQL schema</text><text x="182" y="180" text-anchor="middle" fill="#fff" font-size="13">→ PostgreSQL schema</text>
+<rect x="355" y="90" width="215" height="120" rx="15" fill="#fff" stroke="#2563eb" stroke-width="2"/><text x="462" y="128" text-anchor="middle" font-size="19" font-weight="700">2. Apply Schema</text><text x="462" y="158" text-anchor="middle" font-size="13">PostgreSQL target</text><text x="462" y="180" text-anchor="middle" font-size="13">tables / constraints</text>
+<rect x="635" y="90" width="215" height="120" rx="15" fill="#2563eb"/><text x="742" y="128" text-anchor="middle" fill="#fff" font-size="19" font-weight="700">3. DMS Task</text><text x="742" y="158" text-anchor="middle" fill="#fff" font-size="13">Full load</text><text x="742" y="180" text-anchor="middle" fill="#fff" font-size="13">or Full Load + CDC</text>
+<rect x="915" y="90" width="150" height="120" rx="15" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/><text x="990" y="128" text-anchor="middle" font-size="19" font-weight="700">4. Data</text><text x="990" y="158" text-anchor="middle" font-size="13">MySQL rows</text><text x="990" y="180" text-anchor="middle" font-size="13">→ PostgreSQL</text>
+<line x1="290" y1="150" x2="355" y2="150" stroke="#334155" stroke-width="3" marker-end="url(#h)"/><line x1="570" y1="150" x2="635" y2="150" stroke="#334155" stroke-width="3" marker-end="url(#h)"/><line x1="850" y1="150" x2="915" y2="150" stroke="#334155" stroke-width="3" marker-end="url(#h)"/>
+<text x="560" y="285" text-anchor="middle" font-size="17" font-weight="700">Complete heterogeneous migration pattern</text>
+<text x="560" y="315" text-anchor="middle" font-size="14">Convert structure → apply target schema → migrate data → validate</text>
+</svg>
+<p class="small">AWS explicitly notes that DMS Schema Conversion converts schemas, not data. Use DMS data migration capabilities for the actual data movement. citeturn0search6</p>
+</div>
+
+<h2>20. Optional DMS Data-Migration Task</h2>
+<div class="card">
+<p>After the schema has been prepared, create the traditional DMS components:</p>
+<ol>
+<li>Create/select a DMS replication instance.</li>
+<li>Create MySQL source endpoint.</li>
+<li>Create PostgreSQL target endpoint.</li>
+<li>Create a replication task.</li>
+<li>Choose <strong>Full load</strong> for the classroom exercise.</li>
+<li>Configure table mappings for <code>saleslab</code>.</li>
+<li>Start the task.</li>
+<li>Validate row counts in PostgreSQL.</li>
+</ol>
+<pre><code>MySQL
+  |
+  | source endpoint
+  v
+DMS Replication Instance
+  |
+  | replication task
+  v
+PostgreSQL
+  |
+  v
+Validate rows</code></pre>
+</div>
+
+<h2>21. Validation Exercise</h2>
+<div class="card">
+<h3>MySQL</h3>
+<pre><code>SELECT COUNT(*) FROM customers;
+SELECT COUNT(*) FROM products;
+SELECT COUNT(*) FROM orders;
+SELECT COUNT(*) FROM order_items;</code></pre>
+<h3>PostgreSQL</h3>
+<pre><code>SELECT COUNT(*) FROM customers;
+SELECT COUNT(*) FROM products;
+SELECT COUNT(*) FROM orders;
+SELECT COUNT(*) FROM order_items;</code></pre>
+<p>Compare the counts and then validate a few business queries:</p>
+<pre><code>SELECT
+    c.customer_name,
+    COUNT(o.order_id) AS order_count,
+    COALESCE(SUM(o.total_amount),0) AS total_value
+FROM customers c
+LEFT JOIN orders o
+    ON c.customer_id = o.customer_id
+GROUP BY c.customer_name
+ORDER BY c.customer_name;</code></pre>
+</div>
+
+<h2>22. Lab Challenge</h2>
+<div class="card">
+<ol>
+<li>Add a <code>suppliers</code> table to MySQL.</li>
+<li>Add a foreign key from <code>products</code> to <code>suppliers</code>.</li>
+<li>Run the assessment again.</li>
+<li>Convert the schema again.</li>
+<li>Compare the generated PostgreSQL code.</li>
+<li>Apply the changes.</li>
+<li>Run a DMS full-load task for the new table.</li>
+<li>Validate the source and target row counts.</li>
+</ol>
+</div>
+
+<h2>23. Troubleshooting</h2>
+<div class="card">
+<table>
+<tr><th>Problem</th><th>Likely Cause</th><th>What to Check</th></tr>
+<tr><td>Cannot connect to MySQL</td><td>Network/security group/credentials</td><td>3306, SG, route, DNS, secret</td></tr>
+<tr><td>Cannot connect to PostgreSQL</td><td>Network/security group/credentials</td><td>5432, SG, route, DNS, secret</td></tr>
+<tr><td>Secret cannot be read</td><td>IAM role/KMS permissions</td><td>Secrets Manager permissions and KMS decrypt</td></tr>
+<tr><td>Conversion action items appear</td><td>Source feature has no direct target equivalent</td><td>Assessment report and converted SQL</td></tr>
+<tr><td>Schema exists but no data</td><td>Schema Conversion does not migrate rows</td><td>Create/run DMS data-migration task</td></tr>
+<tr><td>Target schema apply fails</td><td>Insufficient PostgreSQL privileges or incompatible SQL</td><td>Target user privileges and converted SQL</td></tr>
+</table>
+</div>
+
+<h2>24. Student Deliverables</h2>
+<div class="card">
+<ul>
+<li>Screenshot of MySQL source Data Provider.</li>
+<li>Screenshot of PostgreSQL target Data Provider.</li>
+<li>Screenshot of the DMS instance profile.</li>
+<li>Screenshot of Secrets Manager configuration.</li>
+<li>Screenshot of the migration project.</li>
+<li>Conversion assessment report.</li>
+<li>Before/after schema comparison.</li>
+<li>Converted PostgreSQL SQL.</li>
+<li>PostgreSQL schema validation output.</li>
+<li>Optional DMS replication-task execution and row-count validation.</li>
+</ul>
+</div>
+
+<h2>25. Final Mental Model</h2>
+<div class="card">
+<pre><code>                 MYSQL → POSTGRESQL LAB
+
+        ┌───────────────────────────────┐
+        │       DMS SCHEMA CONVERSION   │
+        └───────────────────────────────┘
+                     |
+             +-------+-------+
+             |               |
+             v               v
+       MySQL Data       PostgreSQL Data
+        Provider           Provider
+             \               /
+              \             /
+               v           v
+             Migration Project
+                    |
+             Instance Profile
+                    |
+             Secrets Manager
+                    |
+                    v
+          Assess → Convert → Review
+                    |
+                    v
+              Apply / Export
+                    |
+                    v
+            PostgreSQL Schema
+                    |
+                    v
+        ─────────────────────────
+             DATA MIGRATION
+        ─────────────────────────
+                    |
+                    v
+             AWS DMS Task
+                    |
+                    v
+          MySQL Rows → PostgreSQL</code></pre>
+</div>
+
+<h2>26. Key Takeaways</h2>
+<div class="card">
+<table>
+<tr><th>Concept</th><th>Remember</th></tr>
+<tr><td>Data Provider</td><td>Describes a source or target database for the DMS migration workflow.</td></tr>
+<tr><td>Instance Profile</td><td>Provides network/security settings for Schema Conversion.</td></tr>
+<tr><td>Migration Project</td><td>Brings source provider, target provider, instance profile, credentials and migration rules together.</td></tr>
+<tr><td>Schema Conversion</td><td>Converts schema and supported database code; it does not move data.</td></tr>
+<tr><td>MySQL → PostgreSQL</td><td>A heterogeneous migration and a supported DMS Schema Conversion path.</td></tr>
+<tr><td>DMS Replication Task</td><td>Use this later to migrate the actual rows.</td></tr>
+</table>
+</div>
+
+<h2>27. AWS References</h2>
+<div class="card">
+<ul>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/CHAP_SchemaConversion.html" target="_blank">AWS DMS Schema Conversion</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/getting-started-data-providers.html" target="_blank">Create data providers</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/sc-data-providers-mysql.html" target="_blank">MySQL as a source for Schema Conversion</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/data-providers-postgresql.html" target="_blank">PostgreSQL as a target for Schema Conversion</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/getting-started-project.html" target="_blank">Create a migration project</a></li>
+</ul>
+</div>
+
+<div class="footer">
+<strong>Lab:</strong> AWS DMS Data Provider & Schema Conversion — MySQL → PostgreSQL<br>
+Prepared as a practical training exercise. AWS console labels and supported versions can change; verify current AWS documentation for the selected Region and database versions.
+</div>
+
+</div>
+</body>
+</html>

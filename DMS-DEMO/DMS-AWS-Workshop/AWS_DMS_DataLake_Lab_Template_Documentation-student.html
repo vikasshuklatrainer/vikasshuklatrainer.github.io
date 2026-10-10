@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS DMS Data Lake Lab - CloudFormation Template Documentation</title>
+<style>
+:root{
+ --bg:#f5f7fb;--card:#fff;--ink:#172033;--muted:#5f6b7a;
+ --blue:#1769aa;--blue2:#eaf4ff;--green:#147a5d;--green2:#eaf8f3;
+ --orange:#a85d00;--orange2:#fff5e6;--red:#a52828;--red2:#fff0f0;
+ --border:#dbe2ea;--code:#111827;--shadow:0 5px 22px rgba(20,40,70,.07)
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Segoe UI,Inter,Arial,sans-serif;line-height:1.6}
+header{background:linear-gradient(135deg,#102a43,#1769aa);color:#fff;padding:48px 7%;position:relative;overflow:hidden}
+header:after{content:"";position:absolute;width:430px;height:430px;border:70px solid rgba(255,255,255,.07);border-radius:50%;right:-120px;top:-180px}
+header h1{margin:0 0 10px;font-size:38px}
+header p{max-width:920px;font-size:18px;opacity:.94}
+.badge{display:inline-block;padding:5px 10px;margin:3px;border-radius:999px;background:rgba(255,255,255,.15);font-size:12px}
+.container{width:min(1180px,92%);margin:28px auto}
+nav,section{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow)}
+nav{padding:18px;position:sticky;top:10px;z-index:3}
+nav strong{display:block;margin-bottom:7px}
+nav a{color:var(--blue);text-decoration:none;margin-right:17px;line-height:2}
+section{padding:28px;margin:24px 0}
+h2{color:#123b63;font-size:27px;margin-top:0}
+h3{color:#234d70;margin-top:26px}
+table{width:100%;border-collapse:collapse;margin:15px 0;font-size:14px}
+th,td{border:1px solid var(--border);padding:10px;text-align:left;vertical-align:top}
+th{background:#edf2f7;color:#183b56}
+pre{background:var(--code);color:#e5e7eb;padding:17px;border-radius:10px;overflow:auto;font-size:13px}
+code{background:#eef1f5;padding:2px 5px;border-radius:4px}
+.callout{padding:15px 18px;border-left:5px solid;border-radius:9px;margin:16px 0}
+.info{background:var(--blue2);border-color:var(--blue)}
+.good{background:var(--green2);border-color:var(--green)}
+.warn{background:var(--orange2);border-color:var(--orange)}
+.risk{background:var(--red2);border-color:var(--red)}
+.diagram{background:#fbfcfe;border:1px solid var(--border);border-radius:12px;padding:10px;overflow:auto}
+.diagram svg{max-width:100%;height:auto}
+.small{font-size:13px;color:var(--muted)}
+.resource{font-family:Consolas,monospace;color:#0d608f}
+footer{text-align:center;color:var(--muted);padding:35px}
+</style>
+</head>
+<body>
+
+<header>
+<h1>AWS DMS + Data Lake Lab CloudFormation Template</h1>
+<p>Technical documentation for the supplied CloudFormation template. This document describes the template as provided, including its VPC, DMS service roles, S3 buckets, Glue, Lake Formation, Athena workgroups/users, Lambda cleanup mechanism, parameters, conditions, outputs, and lifecycle.</p>
+<span class="badge">AWS CloudFormation</span>
+<span class="badge">AWS DMS</span>
+<span class="badge">Amazon VPC</span>
+<span class="badge">Amazon S3</span>
+<span class="badge">AWS Glue</span>
+<span class="badge">Lake Formation</span>
+<span class="badge">Amazon Athena</span>
+<span class="badge">AWS Lambda</span>
+</header>
+
+<div class="container">
+<nav>
+<strong>Contents</strong>
+<a href="#purpose">1. Purpose</a>
+<a href="#architecture">2. Architecture</a>
+<a href="#params">3. Parameters</a>
+<a href="#network">4. Networking</a>
+<a href="#iam">5. IAM & DMS</a>
+<a href="#s3">6. S3</a>
+<a href="#glue">7. Glue & Lake Formation</a>
+<a href="#athena">8. Athena & Users</a>
+<a href="#lambda">9. Lambda Cleanup</a>
+<a href="#outputs">10. Outputs</a>
+<a href="#lifecycle">11. Lifecycle</a>
+<a href="#dmsflow">12. DMS Lab Flow</a>
+<a href="#security">13. Observations</a>
+<a href="#inventory">14. Resource Inventory</a>
+</nav>
+
+<section id="purpose">
+<h2>1. Purpose and Scope</h2>
+<p>The supplied template establishes a reusable AWS lab foundation around AWS DMS and data-lake services. It creates networking, S3 storage, IAM roles, Glue roles, Lake Formation workflow access, Athena users/policies, and an S3 cleanup mechanism.</p>
+<div class="callout info"><strong>Scope boundary:</strong> The supplied template does not define an <code>AWS::DMS::ReplicationInstance</code>, DMS source endpoint, DMS target endpoint, or DMS replication task. Those DMS migration objects are therefore outside this template.</div>
+
+<table>
+<tr><th>Functional area</th><th>Template responsibility</th></tr>
+<tr><td>Networking</td><td>VPC, three subnets, Internet Gateway, NAT Gateway, EIP, route tables, NACL, security group and S3 VPC endpoint</td></tr>
+<tr><td>DMS IAM</td><td>S3 role, optional DMS VPC role and optional DMS CloudWatch Logs role</td></tr>
+<tr><td>S3</td><td>Main DMS bucket plus Workgroup A and Workgroup B buckets</td></tr>
+<tr><td>Glue</td><td>Glue service role and S3 access</td></tr>
+<tr><td>Lake Formation</td><td>Workflow role and data-access related permissions</td></tr>
+<tr><td>Athena</td><td>Business Analyst and Workgroup Manager policies/users</td></tr>
+<tr><td>Cleanup</td><td>Lambda custom resource to empty S3 buckets during stack deletion</td></tr>
+</table>
+</section>
+
+<section id="architecture">
+<h2>2. Overall Architecture</h2>
+<div class="diagram">
+<svg viewBox="0 0 1120 690" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="20" y="20" width="1080" height="650" rx="24" fill="#f3f8fd" stroke="#9bb9d3" stroke-width="2"/>
+<text x="50" y="58" font-size="25" font-weight="700" fill="#123b63">AWS DMS + Data Lake Lab Foundation</text>
+
+<rect x="50" y="90" width="1020" height="235" rx="20" fill="#fff" stroke="#6f93b1" stroke-width="2"/>
+<text x="75" y="123" font-size="20" font-weight="700" fill="#123b63">VPC 10.0.0.0/24</text>
+<rect x="80" y="150" width="255" height="135" rx="14" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="207" y="180" text-anchor="middle" font-size="17" font-weight="700">Private Subnet 1</text>
+<text x="207" y="207" text-anchor="middle" font-size="14">10.0.0.0/26</text>
+<text x="207" y="234" text-anchor="middle" font-size="13">NAT route</text>
+<text x="207" y="257" text-anchor="middle" font-size="13">S3 Gateway Endpoint</text>
+
+<rect x="430" y="150" width="255" height="135" rx="14" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="557" y="180" text-anchor="middle" font-size="17" font-weight="700">Private Subnet 2</text>
+<text x="557" y="207" text-anchor="middle" font-size="14">10.0.0.128/26</text>
+<text x="557" y="234" text-anchor="middle" font-size="13">NAT route</text>
+<text x="557" y="257" text-anchor="middle" font-size="13">S3 Gateway Endpoint</text>
+
+<rect x="780" y="150" width="255" height="135" rx="14" fill="#fff8ed" stroke="#c79b57"/>
+<text x="907" y="180" text-anchor="middle" font-size="17" font-weight="700">Public Subnet</text>
+<text x="907" y="207" text-anchor="middle" font-size="14">10.0.0.64/26</text>
+<text x="907" y="234" text-anchor="middle" font-size="13">NAT Gateway</text>
+<text x="907" y="257" text-anchor="middle" font-size="13">Internet Gateway route</text>
+
+<rect x="50" y="355" width="300" height="125" rx="15" fill="#fff" stroke="#9bb9d3"/>
+<text x="200" y="390" text-anchor="middle" font-size="18" font-weight="700">AWS DMS IAM</text>
+<text x="200" y="418" text-anchor="middle" font-size="13">DMSLabRoleS3</text>
+<text x="200" y="442" text-anchor="middle" font-size="13">dms-vpc-role</text>
+<text x="200" y="466" text-anchor="middle" font-size="13">dms-cloudwatch-logs-role</text>
+
+<rect x="410" y="355" width="300" height="125" rx="15" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="560" y="390" text-anchor="middle" font-size="18" font-weight="700">Data Lake Services</text>
+<text x="560" y="418" text-anchor="middle" font-size="13">S3 • Glue • Lake Formation</text>
+<text x="560" y="442" text-anchor="middle" font-size="13">Main + Workgroup buckets</text>
+<text x="560" y="466" text-anchor="middle" font-size="13">Glue/Lake Formation roles</text>
+
+<rect x="770" y="355" width="300" height="125" rx="15" fill="#fff8ed" stroke="#c79b57"/>
+<text x="920" y="390" text-anchor="middle" font-size="18" font-weight="700">Athena</text>
+<text x="920" y="418" text-anchor="middle" font-size="13">Workgroup A</text>
+<text x="920" y="442" text-anchor="middle" font-size="13">Workgroup B</text>
+<text x="920" y="466" text-anchor="middle" font-size="13">Users + access policies</text>
+
+<rect x="310" y="535" width="500" height="85" rx="15" fill="#fff" stroke="#b8c2cc"/>
+<text x="560" y="570" text-anchor="middle" font-size="17" font-weight="700">CloudFormation Cleanup</text>
+<text x="560" y="596" text-anchor="middle" font-size="13">Lambda custom resource empties S3 buckets on delete</text>
+
+<line x1="200" y1="480" x2="200" y2="535" stroke="#1769aa" stroke-width="3" marker-end="url(#arr)"/>
+<line x1="560" y1="480" x2="560" y2="535" stroke="#1769aa" stroke-width="3" marker-end="url(#arr)"/>
+<line x1="920" y1="480" x2="920" y2="535" stroke="#1769aa" stroke-width="3" marker-end="url(#arr)"/>
+</svg>
+</div>
+</section>
+
+<section id="params">
+<h2>3. Parameters and Conditions</h2>
+<table>
+<tr><th>Parameter</th><th>Default</th><th>Purpose</th></tr>
+<tr><td><code>DMSVPCRoleCreated</code></td><td><code>no</code></td><td>Controls the condition associated with the <code>dms-vpc-role</code> resource.</td></tr>
+<tr><td><code>DMSCWRoleCreated</code></td><td><code>no</code></td><td>Controls the condition associated with the <code>dms-cloudwatch-logs-role</code> resource.</td></tr>
+<tr><td><code>PermissionsBoundaryArn</code></td><td>Empty</td><td>Optional IAM permissions boundary attached to supported roles.</td></tr>
+</table>
+
+<h3>Role conditions</h3>
+<p><code>DMSVPCRoleExist</code> evaluates whether <code>DMSVPCRoleCreated</code> is <code>yes</code>. <code>DMSCWRoleExist</code> similarly evaluates <code>DMSCWRoleCreated</code>. The corresponding role resources have these conditions attached.</p>
+<div class="callout warn"><strong>Naming note:</strong> The parameter descriptions say that the role is "already created", while the CloudFormation condition controls whether the role resource is instantiated. Treat the parameter behavior as defined by the actual condition/resource relationship rather than the parameter name alone.</div>
+</section>
+
+<section id="network">
+<h2>4. VPC and Network Architecture</h2>
+<h3>VPC</h3>
+<p>The VPC is <code>10.0.0.0/24</code>. DNS support is enabled and DNS hostnames are disabled in the supplied template.</p>
+
+<table>
+<tr><th>Logical resource</th><th>CIDR / configuration</th><th>Purpose</th></tr>
+<tr><td><code>dmslabstudentsubnet1</code></td><td>10.0.0.0/26, first AZ</td><td>Private subnet</td></tr>
+<tr><td><code>dmslabstudentsubnet2</code></td><td>10.0.0.128/26, second AZ</td><td>Private subnet</td></tr>
+<tr><td><code>dmslabstudentsubnet3</code></td><td>10.0.0.64/26, third AZ</td><td>Public subnet</td></tr>
+<tr><td><code>NatPublicIP</code></td><td>VPC EIP</td><td>NAT Gateway address</td></tr>
+<tr><td><code>NatGateway</code></td><td>Public subnet</td><td>Private subnet outbound connectivity</td></tr>
+<tr><td><code>dmslabstudentigw</code></td><td>Internet Gateway</td><td>Public subnet Internet route</td></tr>
+</table>
+
+<div class="diagram">
+<svg viewBox="0 0 1050 360" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="n" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#147a5d"/></marker></defs>
+<rect x="30" y="30" width="990" height="300" rx="20" fill="#f8fbfd" stroke="#9bb9d3"/>
+<text x="55" y="63" font-size="21" font-weight="700" fill="#123b63">Network Flow</text>
+<rect x="65" y="105" width="210" height="105" rx="13" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="170" y="138" text-anchor="middle" font-weight="700">Private Subnet 1</text>
+<text x="170" y="165" text-anchor="middle" font-size="13">10.0.0.0/26</text>
+<text x="170" y="188" text-anchor="middle" font-size="12">Route → NAT</text>
+<rect x="420" y="105" width="210" height="105" rx="13" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="525" y="138" text-anchor="middle" font-weight="700">Private Subnet 2</text>
+<text x="525" y="165" text-anchor="middle" font-size="13">10.0.0.128/26</text>
+<text x="525" y="188" text-anchor="middle" font-size="12">Route → NAT</text>
+<rect x="775" y="105" width="210" height="105" rx="13" fill="#fff8ed" stroke="#c79b57"/>
+<text x="880" y="138" text-anchor="middle" font-weight="700">Public Subnet</text>
+<text x="880" y="165" text-anchor="middle" font-size="13">10.0.0.64/26</text>
+<text x="880" y="188" text-anchor="middle" font-size="12">NAT + IGW</text>
+<rect x="420" y="245" width="210" height="60" rx="13" fill="#fff" stroke="#72aa91"/>
+<text x="525" y="281" text-anchor="middle" font-weight="700">NAT Gateway</text>
+<line x1="275" y1="158" x2="420" y2="158" stroke="#147a5d" stroke-width="3" marker-end="url(#n)"/>
+<line x1="630" y1="158" x2="775" y2="158" stroke="#147a5d" stroke-width="3" marker-end="url(#n)"/>
+<line x1="525" y1="210" x2="525" y2="245" stroke="#147a5d" stroke-width="3" marker-end="url(#n)"/>
+</svg>
+</div>
+
+<h3>S3 Gateway Endpoint</h3>
+<p><code>S3Endpoint</code> is a VPC Gateway Endpoint for S3 and is associated with both route tables. This provides a dedicated VPC path to S3.</p>
+</section>
+
+<section id="iam">
+<h2>5. IAM Roles and AWS DMS Integration</h2>
+<h3>DMSLabRoleS3</h3>
+<p><code>DMSLabRoleS3</code> is trusted by <code>dms.amazonaws.com</code>. The separate <code>DMSLabS3Policy</code> grants S3 object and bucket access and attaches the policy to both <code>DMSLabRoleS3</code> and <code>GlueLabRole</code>.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 1000 270" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="i" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="45" y="75" width="200" height="105" rx="14" fill="#fff" stroke="#9bb9d3"/>
+<text x="145" y="112" text-anchor="middle" font-weight="700" font-size="18">AWS DMS</text>
+<text x="145" y="140" text-anchor="middle" font-size="13">dms.amazonaws.com</text>
+<text x="145" y="163" text-anchor="middle" font-size="12">AssumeRole</text>
+<rect x="400" y="75" width="200" height="105" rx="14" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="500" y="112" text-anchor="middle" font-weight="700" font-size="17">DMSLabRoleS3</text>
+<text x="500" y="140" text-anchor="middle" font-size="13">DMS service role</text>
+<text x="500" y="163" text-anchor="middle" font-size="12">Permissions boundary optional</text>
+<rect x="755" y="75" width="200" height="105" rx="14" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="855" y="112" text-anchor="middle" font-weight="700" font-size="17">DMSLabS3Bucket</text>
+<text x="855" y="140" text-anchor="middle" font-size="13">Get / Put / Delete</text>
+<text x="855" y="163" text-anchor="middle" font-size="12">ListBucket</text>
+<line x1="245" y1="128" x2="400" y2="128" stroke="#1769aa" stroke-width="3" marker-end="url(#i)"/>
+<line x1="600" y1="128" x2="755" y2="128" stroke="#1769aa" stroke-width="3" marker-end="url(#i)"/>
+</svg>
+</div>
+
+<h3>DMS VPC and CloudWatch roles</h3>
+<table>
+<tr><th>Role</th><th>Condition</th><th>Managed policy</th></tr>
+<tr><td><code>DmsVpcRole</code></td><td><code>DMSVPCRoleExist</code></td><td><code>AmazonDMSVPCManagementRole</code></td></tr>
+<tr><td><code>DMSCloudWatchLogRole</code></td><td><code>DMSCWRoleExist</code></td><td><code>AmazonDMSCloudWatchLogsRole</code></td></tr>
+</table>
+<p>Both roles use the fixed names <code>dms-vpc-role</code> and <code>dms-cloudwatch-logs-role</code>, which explains why the template includes controls for whether those resources should be created.</p>
+</section>
+
+<section id="s3">
+<h2>6. Amazon S3 Storage</h2>
+<table>
+<tr><th>Bucket</th><th>Role in the template</th></tr>
+<tr><td><code>DMSLabS3Bucket</code></td><td>Main S3 bucket used by DMS/Glue policies</td></tr>
+<tr><td><code>S3BucketWorkgroupA</code></td><td>Stores Workgroup A results</td></tr>
+<tr><td><code>S3BucketWorkgroupB</code></td><td>Stores Workgroup B results</td></tr>
+</table>
+
+<div class="diagram">
+<svg viewBox="0 0 1000 280" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="s" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#147a5d"/></marker></defs>
+<rect x="40" y="50" width="240" height="130" rx="14" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="160" y="90" text-anchor="middle" font-weight="700" font-size="18">DMS / Glue</text>
+<text x="160" y="120" text-anchor="middle" font-size="13">S3 permissions</text>
+<text x="160" y="146" text-anchor="middle" font-size="13">Get / Put / Delete / List</text>
+<rect x="380" y="30" width="250" height="80" rx="13" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="505" y="65" text-anchor="middle" font-weight="700">DMSLabS3Bucket</text>
+<text x="505" y="89" text-anchor="middle" font-size="12">Main bucket</text>
+<rect x="700" y="30" width="250" height="80" rx="13" fill="#fff8ed" stroke="#c79b57"/>
+<text x="825" y="65" text-anchor="middle" font-weight="700">Workgroup A</text>
+<text x="825" y="89" text-anchor="middle" font-size="12">Results bucket</text>
+<rect x="700" y="140" width="250" height="80" rx="13" fill="#fff8ed" stroke="#c79b57"/>
+<text x="825" y="175" text-anchor="middle" font-weight="700">Workgroup B</text>
+<text x="825" y="199" text-anchor="middle" font-size="12">Results bucket</text>
+<line x1="280" y1="105" x2="380" y2="70" stroke="#147a5d" stroke-width="3" marker-end="url(#s)"/>
+<line x1="280" y1="130" x2="700" y2="70" stroke="#147a5d" stroke-width="2" marker-end="url(#s)"/>
+<line x1="280" y1="145" x2="700" y2="180" stroke="#147a5d" stroke-width="2" marker-end="url(#s)"/>
+</svg>
+</div>
+</section>
+
+<section id="glue">
+<h2>7. AWS Glue and Lake Formation</h2>
+<h3>GlueLabRole</h3>
+<p>The Glue role is trusted by <code>glue.amazonaws.com</code> and attaches the AWS managed Glue service role plus Kinesis full access. It also contains access to the specified workshop asset bucket.</p>
+
+<h3>LakeFormationWorkflowRole</h3>
+<p>This role is trusted by Glue and includes Lake Formation data-access permissions, <code>iam:PassRole</code>, S3 full access, Glue service role access and Glue console access.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 1050 290" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="g" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="45" y="80" width="200" height="100" rx="14" fill="#fff" stroke="#9bb9d3"/>
+<text x="145" y="117" text-anchor="middle" font-size="18" font-weight="700">AWS Glue</text>
+<text x="145" y="146" text-anchor="middle" font-size="13">GlueLabRole</text>
+<rect x="425" y="80" width="200" height="100" rx="14" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="525" y="117" text-anchor="middle" font-size="18" font-weight="700">Lake Formation</text>
+<text x="525" y="146" text-anchor="middle" font-size="13">Workflow role</text>
+<rect x="805" y="80" width="200" height="100" rx="14" fill="#fff8ed" stroke="#c79b57"/>
+<text x="905" y="117" text-anchor="middle" font-size="18" font-weight="700">S3 Data</text>
+<text x="905" y="146" text-anchor="middle" font-size="13">Data lake buckets</text>
+<line x1="245" y1="130" x2="425" y2="130" stroke="#1769aa" stroke-width="3" marker-end="url(#g)"/>
+<line x1="625" y1="130" x2="805" y2="130" stroke="#1769aa" stroke-width="3" marker-end="url(#g)"/>
+</svg>
+</div>
+</section>
+
+<section id="athena">
+<h2>8. Amazon Athena and IAM Users</h2>
+<p>The template creates two IAM users and corresponding managed policies.</p>
+<table>
+<tr><th>User</th><th>Primary access</th></tr>
+<tr><td><code>BusinessAnalystUser</code></td><td>Athena Workgroup A, S3 Workgroup A, DMS lab bucket, Glue catalog/database/table read access</td></tr>
+<tr><td><code>WorkgroupManagerUser</code></td><td>Workgroup A and Workgroup B S3 access and Athena workgroup management operations</td></tr>
+</table>
+
+<div class="diagram">
+<svg viewBox="0 0 1050 330" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="a2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#a85d00"/></marker></defs>
+<rect x="40" y="60" width="270" height="105" rx="14" fill="#fff" stroke="#9bb9d3"/>
+<text x="175" y="98" text-anchor="middle" font-size="18" font-weight="700">Business Analyst</text>
+<text x="175" y="127" text-anchor="middle" font-size="13">BusinessAnalystUser</text>
+<rect x="390" y="40" width="270" height="105" rx="14" fill="#fff8ed" stroke="#c79b57"/>
+<text x="525" y="78" text-anchor="middle" font-size="18" font-weight="700">Athena Workgroup A</text>
+<text x="525" y="108" text-anchor="middle" font-size="13">Query / results access</text>
+<rect x="740" y="60" width="270" height="105" rx="14" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="875" y="98" text-anchor="middle" font-size="18" font-weight="700">Workgroup A S3</text>
+<text x="875" y="127" text-anchor="middle" font-size="13">Query result storage</text>
+<line x1="310" y1="112" x2="390" y2="92" stroke="#a85d00" stroke-width="3" marker-end="url(#a2)"/>
+<line x1="660" y1="92" x2="740" y2="112" stroke="#a85d00" stroke-width="3" marker-end="url(#a2)"/>
+
+<rect x="40" y="210" width="270" height="90" rx="14" fill="#fff" stroke="#9bb9d3"/>
+<text x="175" y="247" text-anchor="middle" font-size="18" font-weight="700">Workgroup Manager</text>
+<text x="175" y="274" text-anchor="middle" font-size="13">WorkgroupManagerUser</text>
+<rect x="390" y="200" width="270" height="105" rx="14" fill="#fff8ed" stroke="#c79b57"/>
+<text x="525" y="238" text-anchor="middle" font-size="18" font-weight="700">Athena A + B</text>
+<text x="525" y="268" text-anchor="middle" font-size="13">Create / update / delete workgroups</text>
+<rect x="740" y="210" width="270" height="90" rx="14" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="875" y="247" text-anchor="middle" font-size="18" font-weight="700">S3 A + B</text>
+<text x="875" y="274" text-anchor="middle" font-size="13">Manager storage access</text>
+<line x1="310" y1="255" x2="390" y2="255" stroke="#a85d00" stroke-width="3" marker-end="url(#a2)"/>
+<line x1="660" y1="255" x2="740" y2="255" stroke="#a85d00" stroke-width="3" marker-end="url(#a2)"/>
+</svg>
+</div>
+
+<div class="callout risk"><strong>Credential note:</strong> The supplied template defines <code>Admin123!</code> directly in the LoginProfile for both IAM users. This document records that behavior as supplied; it does not change the template.</div>
+</section>
+
+<section id="lambda">
+<h2>9. Lambda S3 Cleanup and Custom Resources</h2>
+<p><code>S3BucketHandler</code> is a Python Lambda used as a CloudFormation custom-resource handler. On Delete it executes an S3 object deletion operation against the bucket specified in <code>ResourceProperties.Bucket</code>.</p>
+
+<h3>Custom resources</h3>
+<table>
+<tr><th>Custom resource</th><th>Bucket passed to handler</th></tr>
+<tr><td><code>EmptyDMSLabS3Bucket</code></td><td><code>DMSLabS3Bucket</code></td></tr>
+<tr><td><code>EmptyWorkgroupAS3Bucket</code></td><td><code>S3BucketWorkgroupA</code></td></tr>
+<tr><td><code>EmptyWorkgroupBS3Bucket</code></td><td><code>S3BucketWorkgroupB</code></td></tr>
+</table>
+
+<div class="diagram">
+<svg viewBox="0 0 1000 270" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="l" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#a52828"/></marker></defs>
+<rect x="45" y="75" width="200" height="100" rx="14" fill="#fff" stroke="#d7a0a0"/>
+<text x="145" y="112" text-anchor="middle" font-size="18" font-weight="700">Stack Delete</text>
+<text x="145" y="140" text-anchor="middle" font-size="13">CloudFormation</text>
+<rect x="400" y="75" width="200" height="100" rx="14" fill="#fff0f0" stroke="#d7a0a0"/>
+<text x="500" y="112" text-anchor="middle" font-size="18" font-weight="700">S3BucketHandler</text>
+<text x="500" y="140" text-anchor="middle" font-size="13">Custom Resource Lambda</text>
+<rect x="755" y="40" width="200" height="65" rx="12" fill="#fff" stroke="#d7a0a0"/>
+<text x="855" y="78" text-anchor="middle" font-weight="700">DMSLabS3Bucket</text>
+<rect x="755" y="115" width="200" height="65" rx="12" fill="#fff" stroke="#d7a0a0"/>
+<text x="855" y="153" text-anchor="middle" font-weight="700">Workgroup A</text>
+<rect x="755" y="190" width="200" height="65" rx="12" fill="#fff" stroke="#d7a0a0"/>
+<text x="855" y="228" text-anchor="middle" font-weight="700">Workgroup B</text>
+<line x1="245" y1="125" x2="400" y2="125" stroke="#a52828" stroke-width="3" marker-end="url(#l)"/>
+<line x1="600" y1="125" x2="755" y2="73" stroke="#a52828" stroke-width="2" marker-end="url(#l)"/>
+<line x1="600" y1="125" x2="755" y2="148" stroke="#a52828" stroke-width="2" marker-end="url(#l)"/>
+<line x1="600" y1="125" x2="755" y2="223" stroke="#a52828" stroke-width="2" marker-end="url(#l)"/>
+</svg>
+</div>
+</section>
+
+<section id="outputs">
+<h2>10. CloudFormation Outputs and Exports</h2>
+<p>The template exports important resources so other stacks or lab instructions can reference them.</p>
+<table>
+<tr><th>Output</th><th>Export</th><th>Value</th></tr>
+<tr><td><code>DMSLabRoleS3</code></td><td>DMSLabRoleS3</td><td>DMSLabRoleS3 ARN</td></tr>
+<tr><td><code>GlueLabRole</code></td><td>GlueLabRole</td><td>Glue role reference</td></tr>
+<tr><td><code>BucketName</code></td><td>BucketName</td><td>DMSLabS3Bucket</td></tr>
+<tr><td><code>S3BucketWorkgroupA</code></td><td>S3BucketWorkgroupA</td><td>Workgroup A bucket</td></tr>
+<tr><td><code>S3BucketWorkgroupB</code></td><td>S3BucketWorkgroupB</td><td>Workgroup B bucket</td></tr>
+<tr><td><code>BusinessAnalystUser</code></td><td>BusinessAnalystUser</td><td>Business Analyst IAM user</td></tr>
+<tr><td><code>WorkgroupManagerUser</code></td><td>WorkgroupManagerUser</td><td>Workgroup Manager IAM user</td></tr>
+<tr><td><code>LakeFormationRole</code></td><td>LakeFormationRole</td><td>Lake Formation workflow role</td></tr>
+<tr><td><code>SecurityGroupId</code></td><td>SecurityGroupId</td><td>sgdefault</td></tr>
+<tr><td><code>VPCId</code></td><td>VPCId</td><td>dmslabstudentvpc</td></tr>
+<tr><td><code>SubnetId</code></td><td>SubnetId</td><td>dmslabstudentsubnet1</td></tr>
+</table>
+</section>
+
+<section id="lifecycle">
+<h2>11. CloudFormation Lifecycle</h2>
+<div class="diagram">
+<svg viewBox="0 0 1050 300" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="f" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="35" y="90" width="180" height="95" rx="14" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="125" y="127" text-anchor="middle" font-weight="700">Create Stack</text>
+<text x="125" y="154" text-anchor="middle" font-size="12">Networking + IAM</text>
+<rect x="300" y="90" width="180" height="95" rx="14" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="390" y="127" text-anchor="middle" font-weight="700">Data Services</text>
+<text x="390" y="154" text-anchor="middle" font-size="12">S3 + Glue + Lake Formation</text>
+<rect x="565" y="90" width="180" height="95" rx="14" fill="#fff8ed" stroke="#c79b57"/>
+<text x="655" y="127" text-anchor="middle" font-weight="700">Athena Lab</text>
+<text x="655" y="154" text-anchor="middle" font-size="12">Users + Workgroups access</text>
+<rect x="830" y="90" width="180" height="95" rx="14" fill="#fff0f0" stroke="#d7a0a0"/>
+<text x="920" y="127" text-anchor="middle" font-weight="700">Delete Stack</text>
+<text x="920" y="154" text-anchor="middle" font-size="12">Cleanup Lambda empties S3</text>
+<line x1="215" y1="137" x2="300" y2="137" stroke="#1769aa" stroke-width="3" marker-end="url(#f)"/>
+<line x1="480" y1="137" x2="565" y2="137" stroke="#1769aa" stroke-width="3" marker-end="url(#f)"/>
+<line x1="745" y1="137" x2="830" y2="137" stroke="#1769aa" stroke-width="3" marker-end="url(#f)"/>
+</svg>
+</div>
+</section>
+
+<section id="dmsflow">
+<h2>12. How This Template Fits into the DMS Lab</h2>
+<p>The template prepares the AWS environment around DMS. The actual migration objects are configured separately.</p>
+<div class="diagram">
+<svg viewBox="0 0 1100 370" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="dms" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="35" y="90" width="225" height="130" rx="15" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="147" y="127" text-anchor="middle" font-size="18" font-weight="700">Source Database</text>
+<text x="147" y="157" text-anchor="middle" font-size="13">External to this template</text>
+<text x="147" y="184" text-anchor="middle" font-size="13">Example: RDS PostgreSQL</text>
+<rect x="435" y="60" width="230" height="190" rx="15" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="550" y="99" text-anchor="middle" font-size="19" font-weight="700">AWS DMS</text>
+<text x="550" y="132" text-anchor="middle" font-size="13">Replication Instance</text>
+<text x="550" y="160" text-anchor="middle" font-size="13">Source Endpoint</text>
+<text x="550" y="188" text-anchor="middle" font-size="13">Target Endpoint</text>
+<text x="550" y="216" text-anchor="middle" font-size="13">Replication Task</text>
+<rect x="840" y="90" width="225" height="130" rx="15" fill="#fff8ed" stroke="#c79b57"/>
+<text x="952" y="127" text-anchor="middle" font-size="18" font-weight="700">Target / Data Lake</text>
+<text x="952" y="157" text-anchor="middle" font-size="13">S3 / database target</text>
+<text x="952" y="184" text-anchor="middle" font-size="13">Prepared by lab services</text>
+<line x1="260" y1="155" x2="435" y2="155" stroke="#1769aa" stroke-width="3" marker-end="url(#dms)"/>
+<line x1="665" y1="155" x2="840" y2="155" stroke="#1769aa" stroke-width="3" marker-end="url(#dms)"/>
+<text x="550" y="310" text-anchor="middle" font-size="16" fill="#234d70">Lab sequence: Create source endpoint → target endpoint → replication task → Full Load / CDC</text>
+</svg>
+</div>
+<div class="callout good"><strong>Practical interpretation:</strong> This template supplies the supporting VPC, S3, IAM and analytics foundation. The DMS objects themselves can then be created and configured using the exported values.</div>
+</section>
+
+<section id="security">
+<h2>13. Security and Operational Observations</h2>
+<p>The following observations are derived directly from the supplied template and are included so the lab behavior is explicit.</p>
+<table>
+<tr><th>Observation</th><th>Template behavior</th></tr>
+<tr><td>IAM user passwords</td><td>Both IAM users have <code>Admin123!</code> in their LoginProfile.</td></tr>
+<tr><td>VPC DNS</td><td>DNS support is enabled; DNS hostnames are disabled.</td></tr>
+<tr><td>NACL</td><td>Inbound and outbound NACL rules allow all protocols from/to 0.0.0.0/0.</td></tr>
+<tr><td>Glue permissions</td><td>Glue role includes AWSGlueServiceRole and AmazonKinesisFullAccess.</td></tr>
+<tr><td>Lake Formation permissions</td><td>Workflow role includes S3 full access, Glue service/console access and wildcard iam:PassRole.</td></tr>
+<tr><td>DMS roles</td><td>VPC and CloudWatch roles are conditionally created using fixed role names.</td></tr>
+<tr><td>Lambda runtime</td><td>S3 cleanup Lambda uses Python 3.8 in the supplied template.</td></tr>
+</table>
+<div class="callout warn"><strong>Important:</strong> This is documentation of the supplied lab template, not a production security review or a modified template. No permissions, credentials, networking settings, or runtimes have been changed in this document.</div>
+</section>
+
+<section id="inventory">
+<h2>14. Resource Inventory</h2>
+<pre>dmslabstudentvpc
+dmslabstudentsubnet1
+dmslabstudentsubnet2
+dmslabstudentsubnet3
+dmslabstudentigw
+NatPublicIP
+NatGateway
+dmslabstudentdopt
+dmslabstudentacl
+dmslabstudentrtable1
+dmslabstudentrtable2
+sgdefault
+acl1
+acl2
+subnetacl1
+subnetacl2
+subnetacl3
+gw1
+subnetroute1
+subnetroute3
+subnetroute4
+route1
+route2
+dchpassoc1
+ingress1
+egress1
+S3Endpoint
+DMSLabS3Bucket
+DMSLabS3Policy
+DMSLabRoleS3
+GlueLabRole
+DmsVpcRole
+DMSCloudWatchLogRole
+LakeFormationWorkflowRole
+S3BucketWorkgroupA
+S3BucketWorkgroupB
+BusinessAnalystUserPolicy
+WorkgroupManagerUserPolicy
+BusinessAnalystUser
+WorkgroupManagerUser
+LambdaRole
+S3BucketHandler
+EmptyDMSLabS3Bucket
+EmptyWorkgroupAS3Bucket
+EmptyWorkgroupBS3Bucket</pre>
+
+<h3>End-to-end conceptual view</h3>
+<div class="diagram">
+<svg viewBox="0 0 1100 430" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="z" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#1769aa"/></marker></defs>
+<rect x="30" y="35" width="1040" height="350" rx="22" fill="#f8fbfd" stroke="#9bb9d3"/>
+<text x="55" y="70" font-size="22" font-weight="700" fill="#123b63">Complete Lab Foundation</text>
+<rect x="65" y="105" width="210" height="90" rx="13" fill="#eef7ff" stroke="#7aa7c9"/>
+<text x="170" y="142" text-anchor="middle" font-weight="700">VPC</text>
+<text x="170" y="169" text-anchor="middle" font-size="13">Private + Public subnets</text>
+<rect x="325" y="105" width="210" height="90" rx="13" fill="#f1fbf7" stroke="#72aa91"/>
+<text x="430" y="142" text-anchor="middle" font-weight="700">S3 + DMS IAM</text>
+<text x="430" y="169" text-anchor="middle" font-size="13">Migration storage foundation</text>
+<rect x="585" y="105" width="210" height="90" rx="13" fill="#fff8ed" stroke="#c79b57"/>
+<text x="690" y="142" text-anchor="middle" font-weight="700">Glue + Lake Formation</text>
+<text x="690" y="169" text-anchor="middle" font-size="13">Data lake governance</text>
+<rect x="845" y="105" width="190" height="90" rx="13" fill="#fff" stroke="#9bb9d3"/>
+<text x="940" y="142" text-anchor="middle" font-weight="700">Athena</text>
+<text x="940" y="169" text-anchor="middle" font-size="13">Analytics / workgroups</text>
+<rect x="325" y="255" width="470" height="85" rx="13" fill="#fff0f0" stroke="#d7a0a0"/>
+<text x="560" y="291" text-anchor="middle" font-weight="700">Lambda Cleanup</text>
+<text x="560" y="317" text-anchor="middle" font-size="13">Empties S3 buckets during CloudFormation deletion</text>
+<line x1="275" y1="150" x2="325" y2="150" stroke="#1769aa" stroke-width="3" marker-end="url(#z)"/>
+<line x1="535" y1="150" x2="585" y2="150" stroke="#1769aa" stroke-width="3" marker-end="url(#z)"/>
+<line x1="795" y1="150" x2="845" y2="150" stroke="#1769aa" stroke-width="3" marker-end="url(#z)"/>
+<line x1="560" y1="195" x2="560" y2="255" stroke="#1769aa" stroke-width="3" marker-end="url(#z)"/>
+</svg>
+</div>
+</section>
+
+</div>
+<footer>
+AWS DMS + Data Lake Lab • CloudFormation Documentation<br>
+Based on the supplied CloudFormation template • Embedded SVG diagrams • Template behavior documented as provided
+</footer>
+</body>
+</html>

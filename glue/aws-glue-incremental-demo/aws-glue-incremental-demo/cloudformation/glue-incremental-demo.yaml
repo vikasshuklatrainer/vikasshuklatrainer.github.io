@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Glue incremental data copy demonstration - S3, Glue database, Glue job, IAM role and Athena workgroup.
+Parameters:
+  ProjectName:
+    Type: String
+    Default: glue-incremental-demo
+    AllowedPattern: '[a-z0-9-]+'
+Resources:
+  DemoBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Purpose
+          Value: !Ref ProjectName
+  GlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-GlueRole-${AWS::Region}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: glue.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: DemoBucketAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetBucketLocation, s3:ListBucket]
+                Resource: !GetAtt DemoBucket.Arn
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub '${DemoBucket.Arn}/*'
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub '${ProjectName}-db'
+        Description: Database for AWS Glue incremental copy demonstration
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub '${ProjectName}-job'
+      Role: !GetAtt GlueServiceRole.Arn
+      GlueVersion: '5.0'
+      NumberOfWorkers: 2
+      WorkerType: G.1X
+      ExecutionProperty: {MaxConcurrentRuns: 1}
+      Command:
+        Name: glueetl
+        PythonVersion: '3'
+        ScriptLocation: !Sub 's3://${DemoBucket}/scripts/glue_incremental_orders.py'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--job-bookmark-option': 'job-bookmark-enable'
+        '--enable-metrics': 'true'
+        '--enable-continuous-cloudwatch-log': 'true'
+        '--SOURCE_PATH': !Sub 's3://${DemoBucket}/source/orders/'
+        '--TARGET_PATH': !Sub 's3://${DemoBucket}/target/orders/'
+      Description: Bookmark-enabled incremental S3-to-S3 Glue ETL job
+      Tags: {Purpose: IncrementalDataCopyDemo}
+  AthenaWorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: !Sub '${ProjectName}-athena'
+      State: ENABLED
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub 's3://${DemoBucket}/athena-results/'
+Outputs:
+  BucketName: {Value: !Ref DemoBucket}
+  GlueRoleArn: {Value: !GetAtt GlueServiceRole.Arn}
+  GlueDatabaseName: {Value: !Ref GlueDatabase}
+  GlueJobName: {Value: !Ref GlueJob}
+  AthenaWorkGroup: {Value: !Ref AthenaWorkGroup}
+  SourcePrefix: {Value: !Sub 's3://${DemoBucket}/source/orders/'}
+  TargetPrefix: {Value: !Sub 's3://${DemoBucket}/target/orders/'}

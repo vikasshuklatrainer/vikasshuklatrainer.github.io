@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Glue Workshop Module 07 - Advanced triggers and event orchestration.
+  Adds a second workflow around existing Module 3 jobs, demonstrating
+  scheduled and EventBridge-event start triggers plus a conditional branch.
+
+Parameters:
+  S3EtlJobName:
+    Type: String
+    Default: glue-module3-s3-sales-etl
+
+  RdsEtlJobName:
+    Type: String
+    Default: glue-module3-rds-to-s3-etl
+
+  WorkflowName:
+    Type: String
+    Default: glue-module7-event-orchestration
+
+  ScheduleExpression:
+    Type: String
+    Default: cron(0 9 * * ? *)
+    Description: Daily at 09:00 UTC. Change for your classroom timezone.
+
+  EventBatchSize:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 100
+
+  EventBatchWindow:
+    Type: Number
+    Default: 300
+    MinValue: 1
+    MaxValue: 900
+
+Resources:
+
+  AdvancedWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Name: !Ref WorkflowName
+      Description: >
+        Module 7 advanced orchestration using schedule, EventBridge event
+        batching, success dependency and failure branching.
+      MaxConcurrentRuns: 1
+      DefaultRunProperties:
+        Module: '07'
+        Purpose: 'Advanced trigger and event orchestration'
+
+  ScheduledStart:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: glue-module7-scheduled-start
+      Description: >
+        Scheduled start trigger. Disabled by default for classroom cost control.
+      Type: SCHEDULED
+      Schedule: !Ref ScheduleExpression
+      StartOnCreation: false
+      WorkflowName: !Ref AdvancedWorkflow
+      Actions:
+        - JobName: !Ref S3EtlJobName
+          Arguments:
+            '--orchestration-mode': scheduled
+
+  EventBridgeStart:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: glue-module7-event-start
+      Description: >
+        EventBridge start trigger. Fires after the configured event batch.
+      Type: EVENT
+      WorkflowName: !Ref AdvancedWorkflow
+      StartOnCreation: false
+      EventBatchingCondition:
+        BatchSize: !Ref EventBatchSize
+        BatchWindow: !Ref EventBatchWindow
+      Actions:
+        - JobName: !Ref S3EtlJobName
+          Arguments:
+            '--orchestration-mode': event
+
+  AfterS3Success:
+    Type: AWS::Glue::Trigger
+    DependsOn:
+      - ScheduledStart
+      - EventBridgeStart
+    Properties:
+      Name: glue-module7-after-s3-success
+      Description: Starts the RDS ETL job after the S3 ETL succeeds.
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref AdvancedWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref S3EtlJobName
+            State: SUCCEEDED
+      Actions:
+        - JobName: !Ref RdsEtlJobName
+          Arguments:
+            '--orchestration-mode': downstream-success
+
+  S3FailureBranch:
+    Type: AWS::Glue::Trigger
+    DependsOn:
+      - ScheduledStart
+      - EventBridgeStart
+    Properties:
+      Name: glue-module7-s3-failure-branch
+      Description: >
+        Demonstration branch that watches for an S3 ETL failure.
+        It does not start another production job; it can be inspected
+        in the workflow graph.
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref AdvancedWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref S3EtlJobName
+            State: FAILED
+      Actions:
+        - JobName: !Ref S3EtlJobName
+          Arguments:
+            '--orchestration-mode': failure-demo
+
+Outputs:
+  WorkflowName:
+    Value: !Ref AdvancedWorkflow
+    Description: Module 7 advanced workflow.
+
+  ScheduledTrigger:
+    Value: !Ref ScheduledStart
+    Description: Scheduled start trigger, disabled by default.
+
+  EventBridgeTrigger:
+    Value: !Ref EventBridgeStart
+    Description: EventBridge start trigger, disabled by default.
+
+  SuccessTrigger:
+    Value: !Ref AfterS3Success
+
+  FailureBranch:
+    Value: !Ref S3FailureBranch

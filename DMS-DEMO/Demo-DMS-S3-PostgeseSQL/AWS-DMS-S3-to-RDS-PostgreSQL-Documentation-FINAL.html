@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS DMS S3 to RDS PostgreSQL - Deployment & Working Guide</title>
+<style>
+  :root {
+    --bg:#f5f7fa; --card:#ffffff; --text:#1f2937; --muted:#5b6472;
+    --accent:#1463ff; --border:#d9dee7; --code:#111827; --ok:#087f5b;
+    --warn:#9a6700;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Arial,sans-serif;line-height:1.55}
+  header{background:linear-gradient(135deg,#172554,#1d4ed8);color:white;padding:42px 7%}
+  header h1{margin:0 0 10px;font-size:34px}
+  header p{margin:6px 0;opacity:.92;max-width:1000px}
+  main{max-width:1200px;margin:28px auto;padding:0 22px}
+  section,.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin:20px 0;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+  h2{margin-top:0;color:#173b8f;border-bottom:1px solid var(--border);padding-bottom:9px}
+  h3{color:#234}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .stat{border:1px solid var(--border);border-radius:10px;padding:16px}
+  .stat strong{display:block;font-size:20px;color:#173b8f}
+  .ok{border-left:5px solid var(--ok);background:#effaf6;padding:14px 16px;border-radius:8px}
+  .warn{border-left:5px solid #d39e00;background:#fff8df;padding:14px 16px;border-radius:8px}
+  code,pre{font-family:Consolas,Monaco,monospace}
+  pre{background:var(--code);color:#e5e7eb;padding:18px;border-radius:9px;overflow:auto;font-size:13px}
+  code{background:#eef2f7;padding:2px 5px;border-radius:4px}
+  pre code{background:transparent;padding:0;border-radius:0;color:inherit}
+  table{width:100%;border-collapse:collapse;margin:12px 0}
+  th,td{border:1px solid var(--border);padding:9px;text-align:left;vertical-align:top}
+  th{background:#eef3ff}
+  .pill{display:inline-block;padding:4px 9px;border-radius:999px;background:#e8efff;color:#173b8f;font-size:12px;font-weight:600}
+  .flow{font-size:18px;text-align:center;padding:18px;background:#f8fafc;border-radius:10px;border:1px solid var(--border)}
+  .small{color:var(--muted);font-size:13px}
+  .architecture{background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:14px;overflow-x:auto}
+  .architecture svg{display:block;width:100%;min-width:760px;height:auto}
+
+  a{color:var(--accent)}
+  footer{max-width:1200px;margin:30px auto;padding:20px 22px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>AWS DMS: S3 → RDS PostgreSQL</h1>
+  <p>Deployment, configuration, CSV preparation, migration execution and troubleshooting guide for the CloudFormation template <strong>dms-rds-postgres-fixed-v5-crlf.yaml</strong>.</p>
+  <p><span class="pill">Working configuration: CSV CRLF</span> <span class="pill">IgnoreHeaderRows=1</span> <span class="pill">PostgreSQL 16</span> <span class="pill">DMS dms.t3.medium</span></p>
+</header>
+
+<main>
+<section>
+<h2>1. What this template creates</h2>
+<div class="flow">
+  S3 CSV → AWS DMS Replication Instance → PostgreSQL Target Endpoint → Amazon RDS PostgreSQL
+</div>
+<div class="grid">
+  <div class="stat"><strong>VPC</strong>10.0.0.0/16 by default, with two public subnets.</div>
+  <div class="stat"><strong>S3</strong>Encrypted private source bucket with DMS read access.</div>
+  <div class="stat"><strong>RDS PostgreSQL</strong>PostgreSQL 16, db.t3.micro, publicly accessible.</div>
+  <div class="stat"><strong>AWS DMS</strong>dms.t3.medium replication instance and replication subnet group.</div>
+  <div class="stat"><strong>DMS Source</strong>S3 CSV endpoint with CRLF row delimiter.</div>
+  <div class="stat"><strong>DMS Target</strong>PostgreSQL endpoint using SSL.</div>
+</div>
+</section>
+
+<section>
+<h2>2. Working Architecture</h2>
+<p>The following SVG shows the actual working data path documented in this guide: the CSV is placed in Amazon S3, AWS DMS reads the file through the S3 source endpoint, the DMS replication instance processes it, and the PostgreSQL target endpoint loads <code>public.employees</code> into Amazon RDS for PostgreSQL.</p>
+<div class="architecture">
+<svg viewBox="0 0 1100 330" role="img" aria-labelledby="archTitle archDesc">
+<title id="archTitle">AWS DMS S3 to RDS PostgreSQL working architecture</title>
+<desc id="archDesc">S3 CSV source flows through AWS DMS replication instance and PostgreSQL target endpoint into Amazon RDS PostgreSQL.</desc>
+<defs>
+  <linearGradient id="s3g" x1="0" x2="1"><stop offset="0" stop-color="#fff7ed"/><stop offset="1" stop-color="#fed7aa"/></linearGradient>
+  <linearGradient id="dmsg" x1="0" x2="1"><stop offset="0" stop-color="#eff6ff"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient>
+  <linearGradient id="rdsg" x1="0" x2="1"><stop offset="0" stop-color="#ecfdf5"/><stop offset="1" stop-color="#bbf7d0"/></linearGradient>
+  <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 Z" fill="#334155"/></marker>
+</defs>
+<rect x="25" y="72" width="250" height="150" rx="18" fill="url(#s3g)" stroke="#c2410c" stroke-width="2"/>
+<text x="150" y="112" text-anchor="middle" font-size="27" font-weight="700" fill="#9a3412">Amazon S3</text>
+<text x="150" y="143" text-anchor="middle" font-size="17" fill="#334155">CSV source</text>
+<text x="150" y="171" text-anchor="middle" font-size="15" fill="#475569">data/public/employees/</text>
+<text x="150" y="196" text-anchor="middle" font-size="15" fill="#475569">LOAD00000001.csv</text>
+
+<line x1="280" y1="147" x2="390" y2="147" stroke="#334155" stroke-width="4" marker-end="url(#arrow)"/>
+<text x="335" y="128" text-anchor="middle" font-size="14" font-weight="600" fill="#475569">S3 source endpoint</text>
+
+<rect x="395" y="42" width="310" height="210" rx="18" fill="url(#dmsg)" stroke="#2563eb" stroke-width="2"/>
+<text x="550" y="82" text-anchor="middle" font-size="27" font-weight="700" fill="#1d4ed8">AWS DMS</text>
+<text x="550" y="112" text-anchor="middle" font-size="17" fill="#334155">Replication Instance</text>
+<text x="550" y="141" text-anchor="middle" font-size="15" fill="#475569">dms.t3.medium</text>
+<text x="550" y="174" text-anchor="middle" font-size="15" fill="#475569">Read → transform → load</text>
+<text x="550" y="204" text-anchor="middle" font-size="14" fill="#475569">CSV: comma delimiter</text>
+<text x="550" y="226" text-anchor="middle" font-size="14" fill="#475569">Row delimiter: CRLF (\r\n)</text>
+
+<line x1="710" y1="147" x2="820" y2="147" stroke="#334155" stroke-width="4" marker-end="url(#arrow)"/>
+<text x="765" y="128" text-anchor="middle" font-size="14" font-weight="600" fill="#475569">PostgreSQL target</text>
+
+<rect x="825" y="72" width="250" height="150" rx="18" fill="url(#rdsg)" stroke="#15803d" stroke-width="2"/>
+<text x="950" y="108" text-anchor="middle" font-size="26" font-weight="700" fill="#166534">Amazon RDS</text>
+<text x="950" y="139" text-anchor="middle" font-size="18" fill="#334155">PostgreSQL 16</text>
+<text x="950" y="169" text-anchor="middle" font-size="15" fill="#475569">Target: public.employees</text>
+<text x="950" y="196" text-anchor="middle" font-size="15" fill="#475569">20 rows in demo</text>
+
+<text x="550" y="294" text-anchor="middle" font-size="15" fill="#475569">Working flow:  S3  →  AWS DMS  →  RDS PostgreSQL</text>
+</svg>
+</div>
+<div class="ok"><strong>Working configuration:</strong> <code>CsvDelimiter=,</code>, <code>CsvRowDelimiter=\r\n</code>, <code>DataFormat=csv</code>, and <code>IgnoreHeaderRows=1</code>. The CRLF row delimiter is important for the Windows-formatted CSV used in this demo.</div>
+</section>
+
+<section>
+<h2>2. Prerequisites</h2>
+<ol>
+<li>AWS account with permission to create CloudFormation, VPC, IAM, S3, RDS and DMS resources.</li>
+<li>AWS CLI configured if deploying from a terminal.</li>
+<li>CloudFormation capability <code>CAPABILITY_NAMED_IAM</code>.</li>
+<li>The DMS service role <code>dms-vpc-role</code> must either already exist or be created by the stack using <code>CreateDmsVpcRole=true</code>.</li>
+<li>For this demo, allow PostgreSQL access to the RDS security group. The template currently opens TCP/5432 to <code>0.0.0.0/0</code>; this is acceptable only for a controlled lab/demo and should be restricted for production.</li>
+</ol>
+</section>
+
+<section>
+<h2>3. Important template parameters</h2>
+<table>
+<tr><th>Parameter</th><th>Default</th><th>Purpose</th></tr>
+<tr><td>ResourcePrefix</td><td>Required</td><td>Prefix for resource names; 2–20 lowercase characters/digits/hyphens.</td></tr>
+<tr><td>VpcCidr</td><td>10.0.0.0/16</td><td>VPC CIDR.</td></tr>
+<tr><td>PublicSubnet1Cidr</td><td>10.0.1.0/24</td><td>First public subnet.</td></tr>
+<tr><td>PublicSubnet2Cidr</td><td>10.0.2.0/24</td><td>Second public subnet.</td></tr>
+<tr><td>DBName</td><td>appdb</td><td>RDS PostgreSQL database.</td></tr>
+<tr><td>DBAllocatedStorage</td><td>20 GB</td><td>RDS storage.</td></tr>
+<tr><td>MigrationType</td><td>full-load</td><td>Full load or full-load-and-cdc.</td></tr>
+<tr><td>S3SourceFolder</td><td>data</td><td>Root folder under which DMS expects source files.</td></tr>
+<tr><td>CreateDmsVpcRole</td><td>false</td><td>Set true only when <code>dms-vpc-role</code> does not already exist.</td></tr>
+</table>
+</section>
+
+<section>
+<h2>4. Deploy the CloudFormation stack</h2>
+<p>Save the template as <code>dms-rds-postgres-fixed-v5-crlf.yaml</code>.</p>
+<p>Example AWS CLI deployment:</p>
+<pre>aws cloudformation deploy \
+  --stack-name tink-dms-demo \
+  --template-file dms-rds-postgres-fixed-v5-crlf.yaml \
+  --parameter-overrides ResourcePrefix=tink \
+  --capabilities CAPABILITY_NAMED_IAM</pre>
+<p>Alternatively use CloudFormation → Create stack → With new resources → Upload the template.</p>
+<div class="warn"><strong>Role-name conflict:</strong> if CloudFormation reports that <code>dms-vpc-role</code> already exists, keep <code>CreateDmsVpcRole=false</code>. The template then uses the existing role rather than trying to create another fixed-name role.</div>
+</section>
+
+<section>
+<h2>5. Required CSV file</h2>
+<p>The working demonstration uses a single table called <code>employees</code>.</p>
+<p>DMS expects the object at:</p>
+<pre>s3://&lt;bucket&gt;/data/public/employees/LOAD00000001.csv</pre>
+
+<p>Use this CSV content:</p>
+<pre>id,name,salary,hired_on
+1,Amit Sharma,52500.00,2020-01-15
+2,Priya Verma,55000.00,2020-02-21
+3,Rahul Singh,57500.00,2020-03-29
+4,Neha Gupta,60000.00,2020-05-05
+5,Vikram Kumar,62500.00,2020-06-11
+6,Anita Patel,65000.00,2020-07-18
+7,Rohan Mehta,67500.00,2020-08-24
+8,Sneha Joshi,70000.00,2020-09-30
+9,Arjun Rao,72500.00,2020-11-06
+10,Pooja Nair,75000.00,2020-12-13
+11,Karan Malhotra,77500.00,2021-01-19
+12,Riya Kapoor,80000.00,2021-02-25
+13,Sanjay Das,82500.00,2021-04-03
+14,Meera Iyer,85000.00,2021-05-10
+15,Nitin Jain,87500.00,2021-06-16
+16,Kavita Shah,90000.00,2021-07-23
+17,Manish Yadav,92500.00,2021-08-29
+18,Swati Mishra,95000.00,2021-10-05
+19,Deepak Sinha,97500.00,2021-11-11
+20,Anjali Agarwal,100000.00,2021-12-18</pre>
+
+<div class="ok"><strong>Critical:</strong> Save the CSV with Windows <strong>CRLF</strong> line endings. The working DMS configuration uses <code>CsvRowDelimiter = \r\n</code>.</div>
+</section>
+
+<section>
+<h2>6. Upload the CSV to S3</h2>
+<p>After stack creation, get the bucket name from the CloudFormation output <code>SourceBucketName</code>.</p>
+<p>Upload the CSV:</p>
+<pre>aws s3 cp employees_20_records_corrected.csv \
+  s3://&lt;bucket-name&gt;/data/public/employees/LOAD00000001.csv</pre>
+<p>Verify:</p>
+<pre>aws s3 ls s3://&lt;bucket-name&gt;/data/public/employees/</pre>
+</section>
+
+<section>
+<h2>7. Critical DMS S3 source configuration</h2>
+<table>
+<tr><th>Setting</th><th>Working value</th></tr>
+<tr><td>Data format</td><td><code>csv</code></td></tr>
+<tr><td>CSV delimiter</td><td><code>,</code></td></tr>
+<tr><td>CSV row delimiter</td><td><strong><code>\r\n</code></strong></td></tr>
+<tr><td>Ignore header rows</td><td><strong><code>1</code></strong></td></tr>
+<tr><td>S3 folder</td><td><code>data</code></td></tr>
+<tr><td>Table path</td><td><code>public/employees/</code></td></tr>
+</table>
+<p><strong>Do not override these values with an endpoint connection attribute.</strong> During troubleshooting, the working configuration used the explicit S3 endpoint settings rather than an ECA containing <code>csvRowDelimiter=\n</code>.</p>
+</section>
+
+<section>
+<h2>8. External table definition</h2>
+<p>The template currently defines:</p>
+<table>
+<tr><th>Column</th><th>DMS type</th><th>Details</th></tr>
+<tr><td>id</td><td>INT8</td><td>Not nullable, primary key</td></tr>
+<tr><td>name</td><td>STRING</td><td>Length 100</td></tr>
+<tr><td>salary</td><td>NUMERIC</td><td>Precision 10, scale 2</td></tr>
+<tr><td>hired_on</td><td>DATE</td><td>Date column</td></tr>
+</table>
+<p>During troubleshooting, <code>hired_on</code> was temporarily changed to <code>STRING(10)</code> to isolate S3/DMS date parsing. The final working fix was the CRLF row delimiter. If your deployed template still contains DATE for <code>hired_on</code>, use valid ISO dates in the CSV and the correct CRLF row delimiter.</p>
+</section>
+
+<section>
+<h2>9. PostgreSQL target</h2>
+<p>The target database is <code>appdb</code>. The DMS target endpoint connects using PostgreSQL SSL:</p>
+<pre>sslmode=require</pre>
+<p>Expected target table structure for the demonstration:</p>
+<pre>CREATE TABLE public.employees
+(
+    id BIGINT PRIMARY KEY,
+    name VARCHAR(100),
+    salary NUMERIC(10,2),
+    hired_on DATE
+);</pre>
+<p>Verify the table:</p>
+<pre>SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'employees'
+ORDER BY ordinal_position;</pre>
+</section>
+
+<section>
+<h2>10. Run the DMS migration</h2>
+<ol>
+<li>Open AWS DMS → Database migration tasks.</li>
+<li>Select the task created by the stack.</li>
+<li>Make sure the source endpoint is the S3 endpoint and the target endpoint is PostgreSQL.</li>
+<li>For a clean demo run, use <strong>Start fresh</strong>.</li>
+<li>Monitor the table <code>public.employees</code>.</li>
+</ol>
+<p>A successful run should show 20 rows received and no table error.</p>
+</section>
+
+<section>
+<h2>11. Verify the migration</h2>
+<p>Connect to the RDS database and run:</p>
+<pre>SELECT COUNT(*) FROM public.employees;
+
+SELECT *
+FROM public.employees
+ORDER BY id;</pre>
+<p>Expected count:</p>
+<pre>20</pre>
+</section>
+
+<section>
+<h2>12. Troubleshooting guide from the actual working demo</h2>
+<table>
+<tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+<tr><td><code>date/time field value out of range: "2025-01-00"</code></td><td>Invalid date reached PostgreSQL.</td><td>Use valid dates such as <code>2020-01-15</code> and verify the actual S3 object.</td></tr>
+<tr><td><code>value too long for type character varying(10)</code> and value ends with a line break</td><td>CRLF character was included in the field because DMS was configured with <code>\n</code>.</td><td>Set <code>CsvRowDelimiter=\r\n</code> and remove conflicting ECA settings.</td></tr>
+<tr><td>DMS <code>1020403</code></td><td>Generic target bulk-load failure.</td><td>Always check the RDS PostgreSQL log at the same UTC timestamp.</td></tr>
+<tr><td><code>password authentication failed</code></td><td>Target credentials do not match the actual RDS master password.</td><td>Synchronize the RDS master password and DMS target endpoint password.</td></tr>
+<tr><td><code>no pg_hba.conf entry ... no encryption</code></td><td>Client attempted a non-SSL connection.</td><td>Use <code>sslmode=require</code>.</td></tr>
+<tr><td><code>dms-vpc-role already exists</code></td><td>CloudFormation attempts to create AWS's fixed DMS VPC role name.</td><td>Use <code>CreateDmsVpcRole=false</code>.</td></tr>
+</table>
+</section>
+
+<section>
+<h2>13. Important template consistency check</h2>
+<div class="warn">
+<strong>Before using this template for a fresh deployment, verify the database password values.</strong>
+The template file currently contains <code>admin123434</code> for the RDS <code>MasterUserPassword</code>, while the DMS PostgreSQL target endpoint contains <code>admin1234</code>. These must match for a fresh stack. The working environment used <code>admin1234</code>.
+</div>
+<p>For a clean deployment, make both values the same before creating the stack. Also avoid hard-coded passwords in production; use AWS Secrets Manager or another secure secret mechanism.</p>
+</section>
+
+<section>
+<h2>14. Resource cleanup</h2>
+<p>This template creates billable AWS resources, especially RDS and DMS. For a lab, delete the CloudFormation stack after the exercise:</p>
+<pre>aws cloudformation delete-stack --stack-name tink-dms-demo</pre>
+<p>Confirm the stack has been deleted and that the RDS instance, DMS replication instance, S3 bucket contents, and associated resources no longer incur charges.</p>
+</section>
+
+<section>
+<h2>15. Complete demo checklist</h2>
+<table>
+<tr><th>Step</th><th>Check</th></tr>
+<tr><td>1</td><td>Deploy CloudFormation stack with <code>CAPABILITY_NAMED_IAM</code>.</td></tr>
+<tr><td>2</td><td>Confirm <code>dms-vpc-role</code> handling.</td></tr>
+<tr><td>3</td><td>Get S3 bucket name from Outputs.</td></tr>
+<tr><td>4</td><td>Create/upload <code>LOAD00000001.csv</code>.</td></tr>
+<tr><td>5</td><td>Ensure CSV uses CRLF line endings.</td></tr>
+<tr><td>6</td><td>Verify <code>CsvRowDelimiter=\r\n</code>.</td></tr>
+<tr><td>7</td><td>Verify <code>IgnoreHeaderRows=1</code>.</td></tr>
+<tr><td>8</td><td>Verify no conflicting ECA overrides the row delimiter.</td></tr>
+<tr><td>9</td><td>Start DMS task fresh.</td></tr>
+<tr><td>10</td><td>Confirm 20 rows migrated.</td></tr>
+<tr><td>11</td><td>Run <code>SELECT COUNT(*) FROM public.employees;</code>.</td></tr>
+<tr><td>12</td><td>Delete the stack when the lab is finished.</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Appendix: CloudFormation template</h2>
+<p>The complete template used for this documentation is included below for reference.</p>
+<details>
+<summary><strong>Show complete YAML</strong></summary>
+<pre>AWSTemplateFormatVersion: &quot;2010-09-09&quot;
+Description: &gt;
+  S3 -&gt; AWS DMS -&gt; RDS PostgreSQL migration environment.
+  Creates VPC, public subnets, IGW, route table, security groups, S3 bucket,
+  RDS PostgreSQL (publicly accessible), DMS replication instance, endpoints and a task.
+  All resources are named with the prefix you supply.
+
+# ---------------------------------------------------------------------------
+# Deploy with: --capabilities CAPABILITY_NAMED_IAM
+# ---------------------------------------------------------------------------
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Description: Prefix applied to every resource name (lowercase letters, digits, hyphens).
+    AllowedPattern: &quot;^[a-z][a-z0-9-]{1,19}$&quot;
+    ConstraintDescription: 2-20 chars, lowercase, must start with a letter; only a-z, 0-9 and hyphens.
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.0.2.0/24
+
+  DBName:
+    Type: String
+    Default: appdb
+    AllowedPattern: &quot;^[a-zA-Z][a-zA-Z0-9_]{0,62}$&quot;
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+
+  MigrationType:
+    Type: String
+    Default: full-load
+    AllowedValues: [full-load, full-load-and-cdc]
+  S3SourceFolder:
+    Type: String
+    Default: data
+    Description: Folder in the bucket that holds schema_name/table_name/LOAD00000001.csv files.
+  CreateDmsVpcRole:
+    Type: String
+    Default: &quot;false&quot;
+    AllowedValues: [&quot;true&quot;, &quot;false&quot;]
+    Description: &gt;
+      DMS needs an IAM role named dms-vpc-role in the account. Set to true only if
+      it does NOT already exist (the stack creation fails if it does).
+
+Conditions:
+  CreateVpcRole: !Equals [!Ref CreateDmsVpcRole, &quot;true&quot;]
+  UseExistingVpcRole: !Equals [!Ref CreateDmsVpcRole, &quot;false&quot;]
+
+Resources:
+  # ------------------------------ Networking ------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-vpc&quot;
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-igw&quot;
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs &quot;&quot;]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-public-subnet-1&quot;
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs &quot;&quot;]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-public-subnet-2&quot;
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-public-rt&quot;
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  Subnet1RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  Subnet2RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ----------------------------- Security groups --------------------------
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub &quot;${ResourcePrefix}-rds-sg&quot;
+      GroupDescription: RDS PostgreSQL - open to all networks on 5432 (0.0.0.0/0)
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+          Description: PostgreSQL from anywhere
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-rds-sg&quot;
+
+  DmsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub &quot;${ResourcePrefix}-dms-sg&quot;
+      GroupDescription: DMS replication instance (outbound only)
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-dms-sg&quot;
+
+  # --------------------------------- S3 -----------------------------------
+  SourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub &quot;${ResourcePrefix}-dms-source-${AWS::AccountId}-${AWS::Region}&quot;
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-dms-source&quot;
+
+  # --------------------------------- IAM ----------------------------------
+  DmsS3AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub &quot;${ResourcePrefix}-dms-s3-access-role&quot;
+      AssumeRolePolicyDocument:
+        Version: &quot;2012-10-17&quot;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dms.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub &quot;${ResourcePrefix}-dms-s3-read&quot;
+          PolicyDocument:
+            Version: &quot;2012-10-17&quot;
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub &quot;${SourceBucket.Arn}/*&quot;
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt SourceBucket.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-dms-s3-access-role&quot;
+
+  DmsVpcRole:
+    Type: AWS::IAM::Role
+    Condition: CreateVpcRole
+    Properties:
+      RoleName: dms-vpc-role # fixed name required by DMS
+      AssumeRolePolicyDocument:
+        Version: &quot;2012-10-17&quot;
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dms.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub &quot;arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonDMSVPCManagementRole&quot;
+
+  # --------------------------------- RDS ----------------------------------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub &quot;${ResourcePrefix}-db-subnet-group&quot;
+      DBSubnetGroupDescription: Public subnets for RDS PostgreSQL
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-db-subnet-group&quot;
+
+  PostgresInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub &quot;${ResourcePrefix}-postgres&quot;
+      Engine: postgres
+      EngineVersion: &quot;16&quot;
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      DBName: !Ref DBName
+      MasterUsername: adminuser
+      MasterUserPassword: admin123434
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroup
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeletionProtection: false
+      Port: &quot;5432&quot;
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-postgres&quot;
+
+  # --------------------------------- DMS ----------------------------------
+  # Used when this stack creates dms-vpc-role (waits for the role first)
+  DmsSubnetGroupWithRole:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    Condition: CreateVpcRole
+    DependsOn: DmsVpcRole
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub &quot;${ResourcePrefix}-dms-subnet-group&quot;
+      ReplicationSubnetGroupDescription: !Sub &quot;${ResourcePrefix} DMS subnet group&quot;
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-dms-subnet-group&quot;
+
+  # Used when dms-vpc-role already exists in the account
+  DmsSubnetGroupExistingRole:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    Condition: UseExistingVpcRole
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub &quot;${ResourcePrefix}-dms-subnet-group&quot;
+      ReplicationSubnetGroupDescription: !Sub &quot;${ResourcePrefix} DMS subnet group&quot;
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-dms-subnet-group&quot;
+
+  DmsReplicationInstance:
+    Type: AWS::DMS::ReplicationInstance
+    DependsOn: PublicRoute
+    Properties:
+      ReplicationInstanceIdentifier: !Sub &quot;${ResourcePrefix}-dms-instance&quot;
+      ReplicationInstanceClass: dms.t3.medium
+      AllocatedStorage: 20
+      ReplicationSubnetGroupIdentifier: !If
+        - CreateVpcRole
+        - !Ref DmsSubnetGroupWithRole
+        - !Ref DmsSubnetGroupExistingRole
+      VpcSecurityGroupIds:
+        - !Ref DmsSecurityGroup
+      PubliclyAccessible: true
+      MultiAZ: false
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-dms-instance&quot;
+
+  S3SourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub &quot;${ResourcePrefix}-s3-source&quot;
+      EndpointType: source
+      EngineName: s3
+      S3Settings:
+        BucketName: !Ref SourceBucket
+        BucketFolder: !Ref S3SourceFolder
+        ServiceAccessRoleArn: !GetAtt DmsS3AccessRole.Arn
+        CsvDelimiter: &quot;,&quot;
+        CsvRowDelimiter: &quot;\r\n&quot;
+        DataFormat: csv
+        IgnoreHeaderRows: 1
+        # SAMPLE definition - replace with your own tables/columns.
+        # Matching file: &lt;bucket&gt;/&lt;S3SourceFolder&gt;/public/employees/LOAD00000001.csv
+        ExternalTableDefinition: |
+          {
+            &quot;TableCount&quot;: &quot;1&quot;,
+            &quot;Tables&quot;: [
+              {
+                &quot;TableName&quot;: &quot;employees&quot;,
+                &quot;TablePath&quot;: &quot;public/employees/&quot;,
+                &quot;TableOwner&quot;: &quot;public&quot;,
+                &quot;TableColumns&quot;: [
+                  { &quot;ColumnName&quot;: &quot;id&quot;, &quot;ColumnType&quot;: &quot;INT8&quot;, &quot;ColumnNullable&quot;: &quot;false&quot;, &quot;ColumnIsPk&quot;: &quot;true&quot; },
+                  { &quot;ColumnName&quot;: &quot;name&quot;, &quot;ColumnType&quot;: &quot;STRING&quot;, &quot;ColumnLength&quot;: &quot;100&quot; },
+                  { &quot;ColumnName&quot;: &quot;salary&quot;, &quot;ColumnType&quot;: &quot;NUMERIC&quot;, &quot;ColumnPrecision&quot;: &quot;10&quot;, &quot;ColumnScale&quot;: &quot;2&quot; },
+                  { &quot;ColumnName&quot;: &quot;hired_on&quot;, &quot;ColumnType&quot;: &quot;DATE&quot; }
+                ],
+                &quot;TableColumnsTotal&quot;: &quot;4&quot;
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-s3-source&quot;
+
+  PostgresTargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub &quot;${ResourcePrefix}-postgres-target&quot;
+      EndpointType: target
+      EngineName: postgres
+      ServerName: !GetAtt PostgresInstance.Endpoint.Address
+      Port: 5432
+      DatabaseName: !Ref DBName
+      Username: adminuser
+      Password: admin1234
+      SslMode: require
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-postgres-target&quot;
+
+  MigrationTask:
+    Type: AWS::DMS::ReplicationTask
+    Properties:
+      ReplicationTaskIdentifier: !Sub &quot;${ResourcePrefix}-s3-to-postgres-task&quot;
+      MigrationType: !Ref MigrationType
+      ReplicationInstanceArn: !Ref DmsReplicationInstance
+      SourceEndpointArn: !Ref S3SourceEndpoint
+      TargetEndpointArn: !Ref PostgresTargetEndpoint
+      TableMappings: |
+        {
+          &quot;rules&quot;: [
+            {
+              &quot;rule-type&quot;: &quot;selection&quot;,
+              &quot;rule-id&quot;: &quot;1&quot;,
+              &quot;rule-name&quot;: &quot;include-all-public&quot;,
+              &quot;object-locator&quot;: { &quot;schema-name&quot;: &quot;public&quot;, &quot;table-name&quot;: &quot;%&quot; },
+              &quot;rule-action&quot;: &quot;include&quot;
+            }
+          ]
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub &quot;${ResourcePrefix}-s3-to-postgres-task&quot;
+
+Outputs:
+  RdsEndpoint:
+    Description: RDS PostgreSQL endpoint (publicly reachable)
+    Value: !GetAtt PostgresInstance.Endpoint.Address
+  RdsPort:
+    Value: !GetAtt PostgresInstance.Endpoint.Port
+  PsqlCommand:
+    Description: Connect command
+    Value: !Sub &quot;psql -h ${PostgresInstance.Endpoint.Address} -p 5432 -U adminuser -d ${DBName}&quot;
+  SourceBucketName:
+    Value: !Ref SourceBucket
+  S3UploadExample:
+    Description: Where DMS expects the CSV files (matches the sample table definition)
+    Value: !Sub &quot;s3://${SourceBucket}/${S3SourceFolder}/public/employees/LOAD00000001.csv&quot;
+  DmsReplicationTaskArn:
+    Description: Start this task from the DMS console or CLI after uploading files
+    Value: !Ref MigrationTask
+  VpcId:
+    Value: !Ref VPC
+</pre>
+</details>
+</section>
+
+<section id="console-walkthrough">
+<h2>Console Walkthrough — Create Endpoints and Run a Full Load</h2>
+<p>This section demonstrates the same S3 → AWS DMS → PostgreSQL flow manually through the AWS DMS console. It assumes that the <strong>CSV file already exists in S3</strong>, the <strong>target PostgreSQL database/table is available</strong>, and the required <strong>IAM role for DMS S3 access</strong> already exists. No CloudFormation is required for these steps.</p>
+
+<div class="callout warning">
+<strong>Terminology note:</strong> For an S3 source endpoint, AWS DMS needs an IAM role that allows DMS to read the S3 bucket. If by “instance profile” you mean an EC2 instance profile, that is not the credential mechanism used by the DMS S3 endpoint. Use the DMS S3 access IAM role and its ARN.
+</div>
+
+<h3>Lab flow</h3>
+<div class="diagram-small">
+<svg viewBox="0 0 1000 210" role="img" aria-label="Manual AWS DMS full load setup: S3 source endpoint to replication task to PostgreSQL target endpoint">
+ <defs>
+  <marker id="arrow-manual" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#334155"/></marker>
+ </defs>
+ <rect x="35" y="55" width="220" height="100" rx="16" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+ <text x="145" y="92" text-anchor="middle" font-size="22" font-weight="700">Amazon S3</text>
+ <text x="145" y="120" text-anchor="middle" font-size="14">CSV source</text>
+ <text x="145" y="141" text-anchor="middle" font-size="12">data/public/employees/...</text>
+ <rect x="390" y="35" width="220" height="140" rx="16" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+ <text x="500" y="75" text-anchor="middle" font-size="21" font-weight="700">AWS DMS</text>
+ <text x="500" y="102" text-anchor="middle" font-size="14">Source Endpoint</text>
+ <text x="500" y="124" text-anchor="middle" font-size="14">Full-load Task</text>
+ <text x="500" y="146" text-anchor="middle" font-size="12">Replication Instance</text>
+ <rect x="745" y="55" width="220" height="100" rx="16" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+ <text x="855" y="92" text-anchor="middle" font-size="22" font-weight="700">RDS PostgreSQL</text>
+ <text x="855" y="120" text-anchor="middle" font-size="14">Target Endpoint</text>
+ <text x="855" y="141" text-anchor="middle" font-size="12">public.employees</text>
+ <line x1="255" y1="105" x2="390" y2="105" stroke="#334155" stroke-width="3" marker-end="url(#arrow-manual)"/>
+ <line x1="610" y1="105" x2="745" y2="105" stroke="#334155" stroke-width="3" marker-end="url(#arrow-manual)"/>
+</svg>
+</div>
+
+<h3>Prerequisites</h3>
+<ol>
+<li>Open the AWS console in the region where the DMS replication instance and database are located.</li>
+<li>Confirm the CSV is uploaded to the S3 bucket. For this demonstration the expected object is <code>data/public/employees/LOAD00000001.csv</code>.</li>
+<li>Confirm the DMS replication instance is <strong>Available</strong>.</li>
+<li>Confirm the target PostgreSQL database is reachable from the DMS replication instance on TCP <code>5432</code>.</li>
+<li>Have the DMS S3 access role ARN available. Example: <code>arn:aws:iam::&lt;account-id&gt;:role/&lt;dms-s3-access-role&gt;</code>.</li>
+<li>For the working CSV demonstration, use Windows CRLF rows and configure the S3 endpoint with <code>CsvRowDelimiter = \r\n</code>.</li>
+</ol>
+
+<h3>1. Create the Source Endpoint — Amazon S3</h3>
+<ol>
+<li>Open <strong>AWS DMS</strong> in the AWS console.</li>
+<li>From the left navigation, choose <strong>Endpoints</strong>.</li>
+<li>Choose <strong>Create endpoint</strong>.</li>
+<li>For <strong>Endpoint type</strong>, select <strong>Source endpoint</strong>.</li>
+<li>Enter an endpoint identifier, for example <code>s3-employees-source</code>.</li>
+<li>For <strong>Source engine</strong>, select <strong>Amazon S3</strong>.</li>
+<li>Under the S3 settings, enter the <strong>Bucket name</strong>.</li>
+<li>Enter the bucket folder/prefix containing the data. For this lab, use <code>data</code> if the complete object path is <code>data/public/employees/LOAD00000001.csv</code>.</li>
+<li>For <strong>Service access role ARN</strong>, enter the IAM role ARN that allows AWS DMS to access the S3 bucket.</li>
+<li>Set the CSV options to match the source file:
+  <ul>
+   <li><strong>Data format:</strong> CSV</li>
+   <li><strong>Column delimiter:</strong> comma (<code>,</code>)</li>
+   <li><strong>Row delimiter:</strong> CRLF (<code>\r\n</code>) for the working Windows CSV used in this lab</li>
+   <li><strong>Ignore header rows:</strong> 1</li>
+  </ul>
+</li>
+<li>For this demonstration, define the source table using an external table definition. This JSON tells AWS DMS how the CSV file maps to the logical source table and its columns.</li>
+</ol>
+
+<h4>Source Table Structure — ExternalTableDefinition JSON</h4>
+<p>Paste/use the following JSON in the <strong>External table definition</strong> field of the S3 source endpoint configuration:</p>
+<pre><code>{
+  "TableCount": "1",
+  "Tables": [
+    {
+      "TableName": "employees",
+      "TablePath": "public/employees/",
+      "TableOwner": "public",
+      "TableColumns": [
+        {
+          "ColumnName": "id",
+          "ColumnType": "INT8",
+          "ColumnNullable": "false",
+          "ColumnIsPk": "true"
+        },
+        {
+          "ColumnName": "name",
+          "ColumnType": "STRING",
+          "ColumnLength": "100"
+        },
+        {
+          "ColumnName": "salary",
+          "ColumnType": "NUMERIC",
+          "ColumnPrecision": "10",
+          "ColumnScale": "2"
+        },
+        {
+          "ColumnName": "hired_on",
+          "ColumnType": "DATE"
+        }
+      ],
+      "TableColumnsTotal": "4"
+    }
+  ]
+}</code></pre>
+
+<h4>How the JSON maps the CSV</h4>
+<table>
+<tr><th>JSON property</th><th>Value</th><th>Purpose</th></tr>
+<tr><td><code>TableName</code></td><td><code>employees</code></td><td>Logical source table name.</td></tr>
+<tr><td><code>TablePath</code></td><td><code>public/employees/</code></td><td>S3 prefix containing the source CSV.</td></tr>
+<tr><td><code>TableOwner</code></td><td><code>public</code></td><td>Source schema/owner used by the migration mapping.</td></tr>
+<tr><td><code>id</code></td><td><code>INT8</code>, PK, NOT NULL</td><td>Employee identifier.</td></tr>
+<tr><td><code>name</code></td><td><code>STRING(100)</code></td><td>Employee name.</td></tr>
+<tr><td><code>salary</code></td><td><code>NUMERIC(10,2)</code></td><td>Employee salary.</td></tr>
+<tr><td><code>hired_on</code></td><td><code>DATE</code></td><td>Employee hiring date; CSV values must use valid dates such as <code>2020-01-15</code>.</td></tr>
+</table>
+
+<ol start="13">
+<li>Choose <strong>Create endpoint</strong>.</li>
+<li>Choose <strong>Create endpoint</strong>.</li>
+</ol>
+
+<div class="callout tip"><strong>Important:</strong> Do not add a conflicting endpoint connection attribute that changes the row delimiter back to <code>\n</code>. The working demonstration uses <code>CsvRowDelimiter = \r\n</code> because the CSV contains Windows CRLF line endings.</div>
+
+<h4>Source endpoint settings — quick reference</h4>
+<table>
+<tr><th>Setting</th><th>Value for this demonstration</th></tr>
+<tr><td>Endpoint type</td><td>Source</td></tr>
+<tr><td>Engine</td><td>Amazon S3</td></tr>
+<tr><td>Bucket</td><td>Your S3 bucket</td></tr>
+<tr><td>Folder</td><td><code>data</code></td></tr>
+<tr><td>IAM role</td><td>DMS S3 access role ARN</td></tr>
+<tr><td>Format</td><td>CSV</td></tr>
+<tr><td>Column delimiter</td><td><code>,</code></td></tr>
+<tr><td>Row delimiter</td><td><code>\r\n</code></td></tr>
+<tr><td>Header rows to ignore</td><td>1</td></tr>
+</table>
+
+<h3>2. Create the Target Endpoint — PostgreSQL</h3>
+<ol>
+<li>Stay in <strong>AWS DMS → Endpoints</strong>.</li>
+<li>Choose <strong>Create endpoint</strong>.</li>
+<li>For <strong>Endpoint type</strong>, select <strong>Target endpoint</strong>.</li>
+<li>Enter an endpoint identifier, for example <code>postgres-employees-target</code>.</li>
+<li>For <strong>Target engine</strong>, select <strong>PostgreSQL</strong>.</li>
+<li>Enter the PostgreSQL server/RDS endpoint DNS name.</li>
+<li>Set <strong>Port</strong> to <code>5432</code>.</li>
+<li>Enter the database name, for example <code>appdb</code>.</li>
+<li>Enter the PostgreSQL username and password.</li>
+<li>If the target requires encrypted connections, set the SSL mode to <strong>require</strong>, matching the working demonstration.</li>
+<li>Choose <strong>Create endpoint</strong>.</li>
+</ol>
+
+<h4>Target endpoint settings — quick reference</h4>
+<table>
+<tr><th>Setting</th><th>Value for this demonstration</th></tr>
+<tr><td>Endpoint type</td><td>Target</td></tr>
+<tr><td>Engine</td><td>PostgreSQL</td></tr>
+<tr><td>Server</td><td>RDS PostgreSQL endpoint</td></tr>
+<tr><td>Port</td><td><code>5432</code></td></tr>
+<tr><td>Database</td><td><code>appdb</code></td></tr>
+<tr><td>SSL mode</td><td><code>require</code></td></tr>
+</table>
+
+<h3>3. Test Both Endpoints</h3>
+<p>Before creating the migration task, validate connectivity.</p>
+<ol>
+<li>In <strong>AWS DMS → Endpoints</strong>, select the S3 source endpoint.</li>
+<li>Choose <strong>Actions → Test connection</strong>.</li>
+<li>Select the existing DMS replication instance.</li>
+<li>Run the test and wait for <strong>successful</strong> status.</li>
+<li>Repeat the same process for the PostgreSQL target endpoint.</li>
+<li>Do not proceed to the task until both endpoint tests are successful.</li>
+</ol>
+
+<div class="callout warning"><strong>If the target connection fails:</strong> verify the RDS security group allows TCP 5432 from the DMS replication instance/network, verify the hostname and database name, and verify the PostgreSQL credentials and SSL requirement.</div>
+
+<h3>4. Create the Replication Task — Full Load</h3>
+<ol>
+<li>In AWS DMS, open <strong>Database migration tasks</strong> from the left navigation.</li>
+<li>Choose <strong>Create task</strong>.</li>
+<li>Enter a task identifier, for example <code>s3-to-postgres-full-load</code>.</li>
+<li>Select the existing <strong>replication instance</strong>.</li>
+<li>For <strong>Source database endpoint</strong>, select the S3 source endpoint created in Step 1.</li>
+<li>For <strong>Target database endpoint</strong>, select the PostgreSQL target endpoint created in Step 2.</li>
+<li>For <strong>Migration type</strong>, select <strong>Migrate existing data</strong> / <strong>Full load</strong> as presented by the console.</li>
+<li>Under <strong>Table mappings</strong>, choose the guided/selection rule option and include the source schema/table represented by the S3 external table definition. For this lab the logical table is <code>public.employees</code>.</li>
+<li>Under task settings, keep the default settings initially for the demonstration unless a specific target preparation mode is required.</li>
+<li>Review the configuration.</li>
+<li>Choose <strong>Create task</strong>.</li>
+</ol>
+
+<h3>5. Start the Full-Load Task</h3>
+<ol>
+<li>Open the newly created task.</li>
+<li>Choose <strong>Actions → Start</strong> (or the equivalent <strong>Start/Resume</strong> action shown by the console).</li>
+<li>Select the option to start the task from the beginning if prompted.</li>
+<li>Wait for the task status to move from <strong>Starting</strong> to <strong>Running</strong> and then <strong>Load complete</strong>/<strong>Stopped</strong>, depending on the console presentation.</li>
+<li>Open the task's <strong>Table statistics</strong> to verify that rows were loaded.</li>
+</ol>
+
+<h3>6. Verify the Result in PostgreSQL</h3>
+<p>Connect to the target database and run:</p>
+<pre>SELECT COUNT(*) FROM public.employees;
+
+SELECT *
+FROM public.employees
+ORDER BY id;</pre>
+<p>For the sample used in this demonstration, the expected result is <strong>20 rows</strong>.</p>
+
+<h3>What the demonstration proves</h3>
+<table>
+<tr><th>Stage</th><th>What students should observe</th></tr>
+<tr><td>Source endpoint</td><td>DMS knows where the CSV files are in S3 and how to parse them.</td></tr>
+<tr><td>Target endpoint</td><td>DMS knows how to connect to PostgreSQL and where to write the data.</td></tr>
+<tr><td>Replication task</td><td>The task binds the replication instance, source endpoint, target endpoint, and table-selection rules.</td></tr>
+<tr><td>Full load</td><td>DMS reads the CSV from S3, converts the source representation according to the table definition, and loads rows into PostgreSQL.</td></tr>
+<tr><td>Verification</td><td>The target table contains the migrated records.</td></tr>
+</table>
+
+<div class="callout tip"><strong>Recommended classroom sequence:</strong> Create source endpoint → test source → create target endpoint → test target → create full-load task → start task → watch table statistics → query PostgreSQL. This makes the DMS concepts visible without hiding the process behind CloudFormation.</div>
+</section>
+
+</main>
+
+<footer>
+Generated documentation for the AWS DMS S3 → RDS PostgreSQL demonstration. 
+The troubleshooting section reflects the actual configuration and errors encountered during the working lab.
+</footer>
+</body>
+</html>

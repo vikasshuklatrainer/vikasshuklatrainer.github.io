@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Glue Workshop Module 06 - Workflow orchestration.
+  Adds a Glue Workflow and triggers around existing Module 3 ETL jobs.
+  Does not recreate the Module 1/2/3 infrastructure.
+
+Parameters:
+  S3EtlJobName:
+    Type: String
+    Default: glue-module3-s3-sales-etl
+    Description: Existing Module 3 S3 ETL job.
+
+  RdsEtlJobName:
+    Type: String
+    Default: glue-module3-rds-to-s3-etl
+    Description: Existing Module 3 PostgreSQL-to-S3 ETL job.
+
+  WorkflowName:
+    Type: String
+    Default: glue-module6-sales-workflow
+
+  StartTriggerName:
+    Type: String
+    Default: glue-module6-start
+
+  AfterS3TriggerName:
+    Type: String
+    Default: glue-module6-after-s3
+
+  MaxConcurrentRuns:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+
+Resources:
+
+  GlueWorkshopWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Name: !Ref WorkflowName
+      Description: >
+        Module 6 workflow demonstrating an on-demand start trigger,
+        a conditional dependency, and sequential ETL execution.
+      MaxConcurrentRuns: !Ref MaxConcurrentRuns
+      DefaultRunProperties:
+        Module: '06'
+        Purpose: 'Glue workflow orchestration lab'
+
+  StartTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Ref StartTriggerName
+      Description: Starts the Module 3 S3 ETL job.
+      Type: ON_DEMAND
+      WorkflowName: !Ref GlueWorkshopWorkflow
+      Actions:
+        - JobName: !Ref S3EtlJobName
+
+  AfterS3Trigger:
+    Type: AWS::Glue::Trigger
+    DependsOn:
+      - StartTrigger
+    Properties:
+      Name: !Ref AfterS3TriggerName
+      Description: Starts the RDS ETL job only after the S3 ETL job succeeds.
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref GlueWorkshopWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref S3EtlJobName
+            State: SUCCEEDED
+      Actions:
+        - JobName: !Ref RdsEtlJobName
+
+Outputs:
+  WorkflowName:
+    Description: Glue workflow name.
+    Value: !Ref GlueWorkshopWorkflow
+
+  StartTriggerName:
+    Description: On-demand trigger that starts the first ETL job.
+    Value: !Ref StartTrigger
+
+  AfterS3TriggerName:
+    Description: Conditional trigger that starts the second ETL job.
+    Value: !Ref AfterS3Trigger
+
+  S3EtlJob:
+    Description: First job in the workflow.
+    Value: !Ref S3EtlJobName
+
+  RdsEtlJob:
+    Description: Second job in the workflow.
+    Value: !Ref RdsEtlJobName

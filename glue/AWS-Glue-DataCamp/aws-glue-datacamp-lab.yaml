@@ -1,0 +1,284 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Glue CSV-to-Parquet hands-on lab based on the DataCamp AWS Glue tutorial.
+  Creates an encrypted S3 data lake bucket, Glue IAM role, Glue Data Catalog
+  database, S3 crawler, Spark ETL job, and an optional trigger that starts
+  the ETL job after a successful crawler run.
+
+Parameters:
+
+  BucketName:
+    Type: String
+    Default: ''
+    Description: >
+      Optional globally unique S3 bucket name for the lab data. Leave blank
+      to let CloudFormation generate the name.
+
+  GlueScriptBucketName:
+    Type: String
+    Description: >
+      Existing S3 bucket containing the Glue PySpark script.
+
+  GlueScriptKey:
+    Type: String
+    Default: aws-glue/csv-to-parquet.py
+    Description: S3 object key for the Glue PySpark script.
+
+  DatabaseName:
+    Type: String
+    Default: paris_olympics_db
+    AllowedPattern: '^[a-z0-9_]+$'
+    Description: Glue Data Catalog database name.
+
+  CrawlerName:
+    Type: String
+    Default: csv-to-parquet-crawler
+    Description: Glue crawler name.
+
+  JobName:
+    Type: String
+    Default: csv-to-parquet-job
+    Description: Glue Spark ETL job name.
+
+  AutoRunJobAfterCrawler:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      If true, enable a conditional trigger that starts the Glue job after
+      the crawler succeeds.
+
+  GlueVersion:
+    Type: String
+    Default: '5.0'
+    AllowedValues:
+      - '4.0'
+      - '5.0'
+    Description: AWS Glue Spark runtime version.
+
+Conditions:
+
+  HasBucketName: !Not
+    - !Equals
+      - !Ref BucketName
+      - ''
+
+  CreateJobTrigger: !Equals
+    - !Ref AutoRunJobAfterCrawler
+    - 'true'
+
+Resources:
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - HasBucketName
+        - !Ref BucketName
+        - !Ref AWS::NoValue
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: ExpireNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Purpose
+          Value: aws-glue-csv-parquet-lab
+
+  GlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-GlueServiceRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+      Policies:
+        - PolicyName: GlueLabS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              - Sid: ListDataBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource: !GetAtt DataBucket.Arn
+
+              - Sid: ReadWriteLabData
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub '${DataBucket.Arn}/input/*'
+                  - !Sub '${DataBucket.Arn}/output/*'
+
+              - Sid: ReadGlueScript
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${GlueScriptBucketName}/${GlueScriptKey}'
+
+      Tags:
+        - Key: Purpose
+          Value: aws-glue-csv-parquet-lab
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref DatabaseName
+        Description: >
+          Data Catalog database for the AWS Glue CSV-to-Parquet lab.
+
+  GlueCrawler:
+    Type: AWS::Glue::Crawler
+    DependsOn:
+      - GlueServiceRole
+      - GlueDatabase
+    Properties:
+      Name: !Ref CrawlerName
+      Role: !GetAtt GlueServiceRole.Arn
+      DatabaseName: !Ref GlueDatabase
+      Description: >
+        Crawls CSV files under the input prefix and catalogs their schemas.
+      TablePrefix: olympics_
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${DataBucket}/input/'
+            Exclusions:
+              - '**/_temporary/**'
+              - '**/_spark_metadata/**'
+      RecrawlPolicy:
+        RecrawlBehavior: CRAWL_EVERYTHING
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: DEPRECATE_IN_DATABASE
+      Configuration: >
+        {"Version":1.0,"CrawlerOutput":{"Partitions":{"AddOrUpdateBehavior":"InheritFromTable"}}}
+
+  GlueJob:
+    Type: AWS::Glue::Job
+    DependsOn:
+      - GlueServiceRole
+      - GlueDatabase
+    Properties:
+      Name: !Ref JobName
+      Description: >
+        Converts athletes.csv, events.csv and medals.csv from CSV to Parquet.
+      Role: !GetAtt GlueServiceRole.Arn
+      GlueVersion: !Ref GlueVersion
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Timeout: 30
+
+      Command:
+        Name: glueetl
+        PythonVersion: '3'
+        ScriptLocation: !Sub 's3://${GlueScriptBucketName}/${GlueScriptKey}'
+
+      DefaultArguments:
+        '--job-language': python
+        '--enable-glue-datacatalog': 'true'
+        '--enable-continuous-cloudwatch-log': 'true'
+        '--enable-metrics': 'true'
+        '--enable-spark-ui': 'true'
+        '--enable-auto-scaling': 'false'
+        '--INPUT_PATH': !Sub 's3://${DataBucket}/input/'
+        '--OUTPUT_PATH': !Sub 's3://${DataBucket}/output/'
+
+      Tags:
+        Purpose: aws-glue-csv-parquet-lab
+
+  CrawlerSuccessTrigger:
+    Type: AWS::Glue::Trigger
+    Condition: CreateJobTrigger
+    DependsOn:
+      - GlueCrawler
+      - GlueJob
+    Properties:
+      Name: !Sub '${CrawlerName}-success-start-job'
+      Description: >
+        Starts the ETL job after the crawler completes successfully.
+      Type: CONDITIONAL
+      StartOnCreation: true
+      Actions:
+        - JobName: !Ref GlueJob
+      Predicate:
+        Logical: AND
+        Conditions:
+          - LogicalOperator: EQUALS
+            CrawlerName: !Ref GlueCrawler
+            CrawlState: SUCCEEDED
+
+Outputs:
+
+  DataBucketName:
+    Description: S3 bucket for input CSV and output Parquet data.
+    Value: !Ref DataBucket
+
+  InputPrefix:
+    Description: Upload athletes.csv, events.csv and medals.csv here.
+    Value: !Sub 's3://${DataBucket}/input/'
+
+  OutputPrefix:
+    Description: Glue job writes Parquet data here.
+    Value: !Sub 's3://${DataBucket}/output/'
+
+  GlueDatabaseName:
+    Description: Glue Data Catalog database.
+    Value: !Ref GlueDatabase
+
+  GlueCrawlerName:
+    Description: Glue crawler name.
+    Value: !Ref GlueCrawler
+
+  GlueJobName:
+    Description: Glue ETL job name.
+    Value: !Ref GlueJob
+
+  GlueRoleArn:
+    Description: IAM role used by the Glue crawler and job.
+    Value: !GetAtt GlueServiceRole.Arn
+
+  Workflow:
+    Description: End-to-end lab workflow.
+    Value: >
+      Upload CSVs to input/ -> run crawler -> crawler succeeds ->
+      Glue job runs -> Parquet files appear in output/

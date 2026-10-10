@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AWS Glue Workshop - Module 07 - Advanced Triggers & Event Orchestration</title>
+<style>
+:root{--bg:#fff;--panel:#f6f8fa;--ink:#172033;--muted:#5b6575;--line:#d9dee7;--accent:#2563eb;--teal:#0f766e;--warn:#fff7ed;--code:#0b1220}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--ink);line-height:1.65}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:280px;background:#111827;color:#dbe4f0;padding:24px 16px;overflow:auto}.sidebar h2{font-size:18px;color:#fff;margin:0 0 18px}.sidebar .module{font-size:12px;color:#94a3b8;text-transform:uppercase;margin:16px 8px 8px}.sidebar a{display:block;color:#cbd5e1;text-decoration:none;padding:8px 10px;border-radius:6px;font-size:14px}.sidebar a:hover{background:#1f2937;color:#fff}
+.main{margin-left:280px;max-width:1200px;padding:38px 54px 80px}h1{font-size:38px;line-height:1.15;margin:0 0 12px}h2{font-size:27px;margin-top:48px;border-bottom:1px solid var(--line);padding-bottom:8px}h3{font-size:20px;margin-top:30px}.lead{font-size:18px;color:var(--muted)}.tag{display:inline-block;background:#e8f0ff;color:#1d4ed8;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:700;margin-right:5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin:18px 0}.success{border-left:5px solid var(--teal)}.warning{background:var(--warn);border-left:5px solid #ea580c}
+table{width:100%;border-collapse:collapse;margin:18px 0}th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{background:#f1f5f9}
+pre{background:var(--code);color:#e5e7eb;padding:18px;border-radius:9px;overflow:auto;font-size:13px;line-height:1.5}code{font-family:Consolas,Monaco,monospace}
+.step{counter-increment:step;margin:16px 0;padding-left:44px;position:relative}.steps{counter-reset:step}.step:before{content:counter(step);position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;text-align:center;line-height:28px;font-weight:700}
+.diagram{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:20px;font-family:Consolas,monospace;white-space:pre;overflow:auto}.small{font-size:13px;color:var(--muted)}a{color:var(--accent)}.delete{color:#991b1b;background:#fee2e2;padding:2px 7px;border-radius:5px;font-weight:700}.keep{color:#065f46;background:#d1fae5;padding:2px 7px;border-radius:5px;font-weight:700}
+</style>
+</head>
+<body>
+<nav class="sidebar">
+<h2>AWS Glue Workshop</h2><div class="module">Module 07</div>
+<a href="#overview">Overview</a><a href="#carry">Carry Forward / Cleanup</a><a href="#architecture">Architecture</a>
+<a href="#concepts">Advanced Trigger Concepts</a><a href="#cfn">CloudFormation</a><a href="#deploy">Deploy</a>
+<a href="#console">Console Lab</a><a href="#schedule">Scheduled Trigger</a><a href="#event">EventBridge Trigger</a>
+<a href="#batch">Event Batching</a><a href="#branch">Success & Failure Branching</a><a href="#args">Workflow Parameters</a>
+<a href="#monitor">Monitoring</a><a href="#troubleshooting">Troubleshooting</a><a href="#cleanup">Cleanup</a><a href="#next">Next Module</a>
+</nav>
+<main class="main">
+<h1>AWS Glue Workshop — Module 07</h1>
+<p class="lead">Advanced triggers and event orchestration — scheduled execution, EventBridge events, event batching, success/failure branches and runtime job arguments.</p>
+<p><span class="tag">Advanced Triggers</span><span class="tag">EventBridge</span><span class="tag">Scheduling</span><span class="tag">Batching</span><span class="tag">Branching</span></p>
+
+<section id="overview"><h2>1. Module Objectives</h2>
+<div class="card success"><strong>Goal:</strong> move from a simple sequential workflow to an event-driven orchestration pattern that can respond to time, events and job outcomes.</div>
+<ul>
+<li>Understand scheduled versus event-driven workflow starts.</li>
+<li>Use EventBridge events as a Glue workflow start mechanism.</li>
+<li>Configure event batching.</li>
+<li>Use conditional triggers for success and failure paths.</li>
+<li>Pass non-secret runtime arguments to jobs.</li>
+<li>Understand workflow default run properties.</li>
+<li>Build the same design with CloudFormation and the AWS console.</li>
+<li>Monitor and safely disable recurring triggers.</li>
+</ul>
+<p>AWS Glue workflows can start from a schedule, on demand, or an EventBridge event; EventBridge starts can be single-event or batched. citeturn0search11turn0search7</p>
+</section>
+
+<section id="carry"><h2>2. Carry Forward from Modules 1–6</h2>
+<table>
+<tr><th>Resource</th><th>Decision</th><th>Reason</th></tr>
+<tr><td>Module 1 S3 bucket</td><td><span class="keep">KEEP</span></td><td>Existing ETL jobs continue to use it.</td></tr>
+<tr><td><code>glue_demo_db</code></td><td><span class="keep">KEEP</span></td><td>Catalog metadata for the ETL jobs.</td></tr>
+<tr><td><code>AWSGlueWorkshopRole</code></td><td><span class="keep">KEEP</span></td><td>Runtime role for existing jobs.</td></tr>
+<tr><td>Module 3 ETL jobs</td><td><span class="keep">KEEP</span></td><td>Used as the upstream/downstream actions in Module 7.</td></tr>
+<tr><td>Module 6 basic workflow</td><td><span class="delete">OPTIONAL DELETE</span></td><td>Module 7 creates a separate advanced workflow. Delete Module 6 after students understand the basic chain.</td></tr>
+<tr><td>Module 6 start/conditional triggers</td><td><span class="delete">DELETE WITH MODULE 6</span></td><td>Owned by the Module 6 workflow.</td></tr>
+<tr><td>Module 4 Visual ETL jobs</td><td><span class="delete">OPTIONAL DELETE</span></td><td>Not required for this module.</td></tr>
+<tr><td>Module 5 notebook</td><td><span class="delete">OPTIONAL DELETE</span></td><td>Not required for orchestration.</td></tr>
+<tr><td>Module 2 RDS/VPC</td><td><span class="delete">OPTIONAL DELETE</span></td><td>Delete after all PostgreSQL labs if the RDS ETL job is also removed/replaced.</td></tr>
+</table>
+<div class="card warning"><strong>Why a new workflow?</strong> Keeping Module 6 and Module 7 separate makes the progression clear: Module 6 teaches sequential orchestration; Module 7 teaches multiple start mechanisms and branching. Students can compare both graphs before deleting Module 6.</div>
+</section>
+
+<section id="architecture"><h2>3. Architecture</h2>
+<div class="diagram">
+                         MODULE 7 WORKFLOW
+                  glue-module7-event-orchestration
+                              │
+                ┌─────────────┼─────────────┐
+                │             │             │
+                ▼             ▼             ▼
+          Scheduled       EventBridge    On-demand
+          Start*          Start*         (console/API)
+                │             │
+                └──────┬──────┘
+                       ▼
+               ┌─────────────────┐
+               │ S3 ETL Job      │
+               │ Module 3       │
+               └───────┬─────────┘
+                       │
+              ┌────────┴────────┐
+              │                 │
+          SUCCEEDED            FAILED
+              │                 │
+              ▼                 ▼
+       RDS ETL Job        Failure branch
+                         (teaching path)
+</div>
+<p>* The scheduled and EventBridge triggers are created disabled by the CloudFormation template to prevent accidental recurring executions. Enable them during the lab only.</p>
+</section>
+
+<section id="concepts"><h2>4. Advanced Trigger Concepts</h2>
+<table>
+<tr><th>Pattern</th><th>When to use it</th></tr>
+<tr><td>Scheduled</td><td>Predictable periodic processing such as daily/weekly batch.</td></tr>
+<tr><td>EventBridge event</td><td>Start processing when an external event occurs, such as an S3 object arrival.</td></tr>
+<tr><td>Event batching</td><td>Wait for N events or a maximum time window before starting the workflow.</td></tr>
+<tr><td>Conditional success</td><td>Start downstream processing only after upstream success.</td></tr>
+<tr><td>Conditional failure</td><td>Route failures to notification/recovery/diagnostic work.</td></tr>
+</table>
+<p>AWS Glue supports <code>SCHEDULED</code>, <code>CONDITIONAL</code>, <code>ON_DEMAND</code> and <code>EVENT</code> trigger types. Event batching supports a batch size of 1–100 events and a batch window of 1–900 seconds. citeturn0search0turn0search9turn0search10</p>
+</section>
+
+<section id="cfn"><h2>5. Module 7 CloudFormation</h2>
+<p>The Module 7 template creates a separate workflow and four triggers:</p>
+<ul>
+<li>Scheduled start trigger — disabled by default.</li>
+<li>EventBridge start trigger — disabled by default.</li>
+<li>Conditional success trigger.</li>
+<li>Conditional failure branch.</li>
+</ul>
+<p>The template uses <code>EventBatchingCondition</code>, which is supported by <code>AWS::Glue::Trigger</code>. citeturn0search0turn0search10</p>
+<pre><code>AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  S3EtlJobName:
+    Type: String
+    Default: glue-module3-s3-sales-etl
+  RdsEtlJobName:
+    Type: String
+    Default: glue-module3-rds-to-s3-etl
+  WorkflowName:
+    Type: String
+    Default: glue-module7-event-orchestration
+
+Resources:
+
+  AdvancedWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Name: !Ref WorkflowName
+      MaxConcurrentRuns: 1
+
+  ScheduledStart:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Type: SCHEDULED
+      Schedule: cron(0 9 * * ? *)
+      StartOnCreation: false
+      WorkflowName: !Ref AdvancedWorkflow
+      Actions:
+        - JobName: !Ref S3EtlJobName
+          Arguments:
+            '--orchestration-mode': scheduled
+
+  EventBridgeStart:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Type: EVENT
+      StartOnCreation: false
+      WorkflowName: !Ref AdvancedWorkflow
+      EventBatchingCondition:
+        BatchSize: 2
+        BatchWindow: 300
+      Actions:
+        - JobName: !Ref S3EtlJobName
+          Arguments:
+            '--orchestration-mode': event
+
+  AfterS3Success:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref AdvancedWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref S3EtlJobName
+            State: SUCCEEDED
+      Actions:
+        - JobName: !Ref RdsEtlJobName
+          Arguments:
+            '--orchestration-mode': downstream-success
+
+  S3FailureBranch:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref AdvancedWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref S3EtlJobName
+            State: FAILED
+      Actions:
+        - JobName: !Ref S3EtlJobName
+          Arguments:
+            '--orchestration-mode': failure-demo
+</code></pre>
+<div class="card warning"><strong>EventBridge permission:</strong> EventBridge must be permitted to notify the Glue workflow. AWS documents the <code>glue:notifyEvent</code> permission for the EventBridge-to-Glue integration. The console-created EventBridge workflow trigger handles the integration path for the classroom exercise; when automating the surrounding EventBridge configuration separately, verify this permission. citeturn0search8</div>
+</section>
+
+<section id="deploy"><h2>6. Deploy the CloudFormation Stack</h2>
+<div class="steps">
+<div class="step">Ensure Module 3 ETL jobs exist.</div>
+<div class="step">Open CloudFormation → Create stack.</div>
+<div class="step">Upload <code>aws-glue-module-07-advanced-triggers.yaml</code>.</div>
+<div class="step">Confirm the S3 and RDS ETL job names.</div>
+<div class="step">Review the schedule expression.</div>
+<div class="step">Leave scheduled and EventBridge triggers disabled during stack creation.</div>
+<div class="step">Create the stack.</div>
+<div class="step">Open AWS Glue → Workflows.</div>
+<div class="step">Open <code>glue-module7-event-orchestration</code>.</div>
+<div class="step">Inspect the workflow graph.</div>
+</div>
+</section>
+
+<section id="console"><h2>7. Console Lab — Build Module 7 Manually</h2>
+<h3>7.1 Create the Advanced Workflow</h3>
+<div class="steps">
+<div class="step">Open AWS Glue.</div>
+<div class="step">Choose <strong>ETL → Workflows</strong>.</div>
+<div class="step">Choose <strong>Add workflow</strong>.</div>
+<div class="step">Enter <code>glue-module7-event-orchestration</code>.</div>
+<div class="step">Optionally add description: <code>Advanced trigger and event orchestration</code>.</div>
+<div class="step">Choose <strong>Add workflow</strong>.</div>
+<div class="step">Open the workflow and select the <strong>Graph</strong> tab.</div>
+</div>
+
+<h3>7.2 Create a Scheduled Start Trigger</h3>
+<div class="steps">
+<div class="step">Choose <strong>Add trigger</strong>.</div>
+<div class="step">Choose <strong>Add new</strong>.</div>
+<div class="step">Select <strong>Schedule</strong>.</div>
+<div class="step">Name it <code>glue-module7-scheduled-start</code>.</div>
+<div class="step">For the classroom, choose a low-frequency schedule.</div>
+<div class="step">For a custom schedule, use a cron expression such as <code>cron(0 9 * * ? *)</code>.</div>
+<div class="step">Attach <code>glue-module3-s3-sales-etl</code> as the action.</div>
+<div class="step"><strong>Do not enable it yet.</strong></div>
+</div>
+<p>AWS's console supports Schedule, On demand and EventBridge event start triggers, with Custom cron available for schedules. citeturn0search7</p>
+
+<h3>7.3 Create an EventBridge Start Trigger</h3>
+<div class="steps">
+<div class="step">Choose <strong>Add trigger</strong> → <strong>Add new</strong>.</div>
+<div class="step">Select <strong>EventBridge event</strong>.</div>
+<div class="step">Name it <code>glue-module7-event-start</code>.</div>
+<div class="step">Set the event batch size to <strong>2</strong> for the exercise.</div>
+<div class="step">Set the optional batch window to <strong>300 seconds</strong>.</div>
+<div class="step">Attach <code>glue-module3-s3-sales-etl</code>.</div>
+<div class="step">Create the trigger but keep it disabled until the event exercise begins.</div>
+</div>
+<p>AWS documents that EventBridge start triggers can wait for a specified number of events or until the batch window expires. citeturn0search7turn0search11</p>
+
+<h3>7.4 Add the Success Dependency</h3>
+<div class="steps">
+<div class="step">Select the S3 ETL job node.</div>
+<div class="step">Add a new trigger.</div>
+<div class="step">Choose the job-event/conditional trigger option.</div>
+<div class="step">Name it <code>glue-module7-after-s3-success</code>.</div>
+<div class="step">Watch <code>glue-module3-s3-sales-etl</code>.</div>
+<div class="step">Choose <strong>Succeeded</strong>.</div>
+<div class="step">Add <code>glue-module3-rds-to-s3-etl</code> as the action.</div>
+<div class="step">Enable the trigger.</div>
+</div>
+
+<h3>7.5 Add the Failure Branch</h3>
+<div class="steps">
+<div class="step">Add another conditional/job-event trigger.</div>
+<div class="step">Name it <code>glue-module7-s3-failure-branch</code>.</div>
+<div class="step">Watch the S3 ETL job.</div>
+<div class="step">Choose <strong>Failed</strong>.</div>
+<div class="step">For a classroom demonstration, point the branch to a harmless diagnostic/recovery job if available.</div>
+<div class="step">Do not point a failure branch back to the same production job unless you deliberately want to demonstrate retry-loop risks.</div>
+</div>
+<div class="card warning"><strong>Recommended production pattern:</strong> a failure branch should normally call a notification, quarantine, diagnostic or recovery process—not blindly rerun the failed job.</div>
+
+<h3>7.6 Test Scheduled Execution</h3>
+<div class="steps">
+<div class="step">Enable the scheduled trigger.</div>
+<div class="step">Wait for the scheduled time or temporarily use a short classroom schedule.</div>
+<div class="step">Observe the S3 job start.</div>
+<div class="step">After testing, immediately disable the scheduled trigger.</div>
+</div>
+
+<h3>7.7 Test EventBridge Execution</h3>
+<div class="steps">
+<div class="step">Enable the EventBridge trigger.</div>
+<div class="step">Generate the event configured for your exercise.</div>
+<div class="step">Send two events to demonstrate the <strong>BatchSize = 2</strong> condition.</div>
+<div class="step">Observe that the workflow starts after the batch condition is met.</div>
+<div class="step">Alternatively, send one event and wait for the configured batch window to expire.</div>
+<div class="step">Disable the EventBridge trigger after testing.</div>
+</div>
+<p>AWS's EventBridge workflow integration uses the Glue <code>notifyEvent</code> permission so EventBridge can deliver the event to the workflow. citeturn0search8</p>
+</section>
+
+<section id="schedule"><h2>8. Scheduled Trigger Deep Dive</h2>
+<p>Glue schedules use AWS cron syntax and are evaluated in UTC. For example:</p>
+<pre><code>cron(0 9 * * ? *)</code></pre>
+<p>means 09:00 UTC daily. AWS documents scheduled triggers as time-based triggers using cron expressions. citeturn0search2turn0search9</p>
+<table>
+<tr><th>Requirement</th><th>Example</th></tr>
+<tr><td>Daily 09:00 UTC</td><td><code>cron(0 9 * * ? *)</code></td></tr>
+<tr><td>Every hour</td><td><code>cron(0 * * * ? *)</code></td></tr>
+<tr><td>Every 30 minutes</td><td><code>cron(0/30 * * * ? *)</code></td></tr>
+<tr><td>Weekdays 08:00 UTC</td><td><code>cron(0 8 ? * MON-FRI *)</code></td></tr>
+</table>
+<div class="card warning">Always check the schedule in UTC and disable recurring triggers after the classroom exercise. A trigger that remains enabled can continue launching Glue jobs.</div>
+</section>
+
+<section id="event"><h2>9. EventBridge Trigger Deep Dive</h2>
+<p>EventBridge event triggers are useful for data pipelines where processing should begin because something happened rather than because a clock reached a time. AWS identifies S3 object arrival as a common use case. citeturn0search11</p>
+<div class="diagram">
+S3 PutObject
+     │
+     ▼
+EventBridge Event
+     │
+     ▼
+Glue Event Trigger
+     │
+     ▼
+Workflow
+     │
+     ▼
+S3 ETL Job
+</div>
+<p>The event trigger can operate on one event or batch multiple events before starting the workflow.</p>
+</section>
+
+<section id="batch"><h2>10. Event Batching Exercise</h2>
+<p>Glue supports two batching controls:</p>
+<table>
+<tr><th>Property</th><th>Meaning</th><th>Range</th></tr>
+<tr><td><code>BatchSize</code></td><td>Number of EventBridge events required.</td><td>1–100</td></tr>
+<tr><td><code>BatchWindow</code></td><td>Maximum wait after the first event.</td><td>1–900 seconds</td></tr>
+</table>
+<p>For example, <code>BatchSize=10</code> and <code>BatchWindow=300</code> means the workflow starts when ten events arrive or five minutes pass after the first event, whichever happens first. citeturn0search10</p>
+</section>
+
+<section id="branch"><h2>11. Success and Failure Branching</h2>
+<div class="diagram">
+                 S3 ETL
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+       SUCCEEDED            FAILED
+          │                   │
+          ▼                   ▼
+       RDS ETL          Notification /
+                         Recovery /
+                         Diagnostics
+</div>
+<p>Conditional triggers can watch job or crawler completion states and can use <code>AND</code> or <code>ANY</code> logic when multiple conditions are configured. citeturn0search2turn0search14</p>
+<h3>Advanced exercise: two upstream jobs</h3>
+<p>Create a trigger that starts a downstream job only when both upstream jobs succeed:</p>
+<pre><code>Predicate:
+  Logical: AND
+  Conditions:
+    - Job A = SUCCEEDED
+    - Job B = SUCCEEDED</code></pre>
+<p>Then create a second trigger using <code>ANY</code> to demonstrate an alert/recovery path when either upstream job fails.</p>
+</section>
+
+<section id="args"><h2>12. Workflow Run Properties and Job Arguments</h2>
+<p>Workflow default run properties can be made available as arguments to jobs in the workflow. AWS documents workflow run properties as a way to pass configuration across jobs. citeturn0search7turn0search12</p>
+<p>Good examples include:</p>
+<ul><li>environment</li><li>processing date</li><li>output format</li><li>source system</li><li>execution mode</li></ul>
+<div class="card warning"><strong>Never pass passwords, API keys or other secrets as trigger/job arguments.</strong> AWS warns that job arguments can be logged. Use Glue Connections or Secrets Manager instead. citeturn0search6</div>
+</section>
+
+<section id="monitor"><h2>13. Monitoring and Operations</h2>
+<div class="steps">
+<div class="step">Open AWS Glue → Workflows.</div>
+<div class="step">Select <code>glue-module7-event-orchestration</code>.</div>
+<div class="step">Inspect the graph.</div>
+<div class="step">Open workflow runs.</div>
+<div class="step">Identify which start trigger initiated the run.</div>
+<div class="step">Inspect S3 ETL job status.</div>
+<div class="step">Inspect the success or failure branch.</div>
+<div class="step">Open individual job runs for CloudWatch logs.</div>
+</div>
+</section>
+
+<section id="troubleshooting"><h2>14. Troubleshooting</h2>
+<table>
+<tr><th>Problem</th><th>Likely cause</th><th>Resolution</th></tr>
+<tr><td>Schedule does not fire</td><td>Trigger disabled or cron misunderstood.</td><td>Enable trigger and verify UTC cron expression.</td></tr>
+<tr><td>Event trigger does not fire</td><td>EventBridge integration/permission or event pattern issue.</td><td>Verify EventBridge event, Glue trigger state and <code>glue:notifyEvent</code> integration. citeturn0search8</td></tr>
+<tr><td>Batch trigger waits unexpectedly</td><td>Batch size has not been reached.</td><td>Send enough events or wait for the batch window.</td></tr>
+<tr><td>Downstream job does not start</td><td>Upstream job was not started through the expected trigger chain.</td><td>Run the workflow through its start trigger and inspect the condition.</td></tr>
+<tr><td>Failure branch creates a loop</td><td>Failure action points back to the same job.</td><td>Use a notification/recovery job instead.</td></tr>
+<tr><td>Jobs run more often than expected</td><td>Multiple start triggers are enabled.</td><td>Disable unused scheduled/event triggers.</td></tr>
+</table>
+</section>
+
+<section id="cleanup"><h2>15. Cleanup</h2>
+<h3>Module 7</h3>
+<ul>
+<li>Disable the scheduled trigger.</li>
+<li>Disable the EventBridge trigger.</li>
+<li>Delete the Module 7 CloudFormation stack after the exercise.</li>
+<li>Verify no workflow runs remain active.</li>
+</ul>
+<h3>Module 6 cleanup</h3>
+<ul>
+<li><span class="delete">DELETE</span> the Module 6 workflow after students understand the basic sequential orchestration.</li>
+<li><span class="delete">DELETE</span> Module 6 on-demand and conditional triggers with the workflow.</li>
+</ul>
+<h3>Earlier cleanup</h3>
+<ul>
+<li><span class="delete">DELETE</span> Module 2 RDS crawler if discovery is complete.</li>
+<li><span class="delete">DELETE</span> Module 4 Visual ETL jobs if comparison is complete.</li>
+<li><span class="delete">DELETE</span> Module 5 notebook if no longer required.</li>
+<li><span class="delete">DELETE</span> Module 2 VPC/RDS/Glue Connection only after all JDBC exercises and the Module 3 RDS ETL workflow are no longer needed.</li>
+</ul>
+<h3>Keep</h3>
+<ul>
+<li>Module 1 S3 bucket.</li>
+<li><code>glue_demo_db</code>.</li>
+<li><code>AWSGlueWorkshopRole</code>.</li>
+<li>Module 3 ETL jobs while this module is being taught.</li>
+</ul>
+</section>
+
+<section id="next"><h2>16. Next Module</h2>
+<div class="card success"><strong>Module 8 — Data Classification & Glue Crawlers</strong><br>
+Explore Glue classifiers, built-in vs custom classification, crawler behavior, schema detection, partitions and data-quality implications.</div>
+</section>
+
+<footer class="small"><p>AWS Glue trigger capabilities and console labels can evolve. Validate exact UI labels in the current AWS console when delivering the workshop.</p></footer>
+</main></body></html>

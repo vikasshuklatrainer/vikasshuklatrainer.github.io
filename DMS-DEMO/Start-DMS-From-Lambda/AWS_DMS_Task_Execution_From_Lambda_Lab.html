@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AWS DMS Task Execution from Lambda</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#f4f7fb;color:#172033;line-height:1.55}main{max-width:1150px;margin:auto;padding:28px}.hero{background:linear-gradient(135deg,#111827,#312e81);color:#fff;padding:34px;border-radius:18px}.hero h1{margin:0 0 8px;font-size:36px}.hero p{max-width:900px}.card{background:#fff;border:1px solid #dce2eb;border-radius:14px;padding:22px;margin:18px 0;box-shadow:0 4px 15px #0000000b}h2{border-bottom:2px solid #dce2eb;padding-bottom:8px;margin-top:38px}h3{margin-top:26px}.step{border-left:5px solid #2563eb;padding:13px 17px;margin:12px 0;background:#fff;border-radius:8px}.num{font-weight:700;color:#2563eb}pre{background:#101827;color:#e6edf7;padding:18px;border-radius:10px;overflow:auto;font-size:13px;line-height:1.5}code{font-family:Consolas,monospace}table{border-collapse:collapse;width:100%;background:#fff}th,td{border:1px solid #dce2eb;padding:10px;text-align:left;vertical-align:top}th{background:#eef2f7}.note{padding:14px 17px;border-radius:9px;margin:15px 0}.info{background:#eff6ff;border-left:5px solid #2563eb}.good{background:#f0fdf4;border-left:5px solid #16a34a}.warn{background:#fff7ed;border-left:5px solid #f97316}.small{font-size:13px;color:#5b6475}a{color:#2563eb}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:15px}.footer{border-top:1px solid #dce2eb;margin-top:35px;padding-top:18px;color:#5b6475;font-size:12px}
+</style></head><body><main>
+<section class="hero"><h1>Executing an AWS DMS Replication Task from AWS Lambda</h1><p>Step-by-step lab guide for starting an existing AWS Database Migration Service (AWS DMS) replication task from a Python Lambda function using Boto3. Includes architecture, IAM permissions, configuration, code, testing, monitoring, troubleshooting, and a metadata-driven extension.</p></section>
+<div class="note info"><b>Scope:</b> This lab assumes the DMS replication instance, source endpoint, target endpoint, and replication task already exist. Lambda controls the DMS task; it does not create those DMS resources.</div>
+
+<h2>1. Architecture</h2><div class="card">
+<svg viewBox="0 0 1100 410" width="100%" role="img" aria-label="Trigger to Lambda to DMS task architecture"><defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#334155"/></marker></defs><rect x="20" y="20" width="1060" height="370" rx="18" fill="#f8fafc" stroke="#cbd5e1"/><rect x="55" y="145" width="175" height="90" rx="14" fill="white" stroke="#64748b" stroke-width="2"/><text x="142" y="180" text-anchor="middle" font-size="18" font-weight="700">Trigger</text><text x="142" y="207" text-anchor="middle" font-size="13">Manual / S3 / EventBridge</text><rect x="300" y="95" width="240" height="190" rx="16" fill="#7c3aed"/><text x="420" y="140" text-anchor="middle" fill="white" font-size="21" font-weight="700">AWS Lambda</text><text x="420" y="171" text-anchor="middle" fill="white" font-size="13">Python + Boto3</text><text x="420" y="198" text-anchor="middle" fill="white" font-size="13">Read DMS_TASK_ARN</text><text x="420" y="221" text-anchor="middle" fill="white" font-size="13">Check task status</text><text x="420" y="244" text-anchor="middle" fill="white" font-size="13">StartReplicationTask()</text><rect x="615" y="95" width="235" height="190" rx="16" fill="#2563eb"/><text x="732" y="140" text-anchor="middle" fill="white" font-size="21" font-weight="700">AWS DMS</text><text x="732" y="171" text-anchor="middle" fill="white" font-size="13">Replication Task</text><text x="732" y="198" text-anchor="middle" fill="white" font-size="13">Full Load / CDC</text><text x="732" y="221" text-anchor="middle" fill="white" font-size="13">Source → Target</text><rect x="925" y="145" width="130" height="90" rx="14" fill="white" stroke="#64748b" stroke-width="2"/><text x="990" y="180" text-anchor="middle" font-size="18" font-weight="700">Target DB</text><text x="990" y="207" text-anchor="middle" font-size="13">Migrated data</text><line x1="230" y1="190" x2="300" y2="190" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><line x1="540" y1="190" x2="615" y2="190" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><line x1="850" y1="190" x2="925" y2="190" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><rect x="330" y="325" width="180" height="42" rx="9" fill="#ecfdf5" stroke="#86efac"/><text x="420" y="351" text-anchor="middle" font-size="13" font-weight="700">Lambda IAM Role</text><line x1="420" y1="325" x2="420" y2="285" stroke="#475569" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#a)"/><rect x="610" y="325" width="245" height="42" rx="9" fill="#eff6ff" stroke="#93c5fd"/><text x="732" y="351" text-anchor="middle" font-size="13" font-weight="700">dms:StartReplicationTask</text><line x1="732" y1="325" x2="732" y2="285" stroke="#475569" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#a)"/></svg>
+<p><b>Core idea:</b> Lambda calls the DMS control-plane API. Lambda does not perform the data movement itself; the DMS replication task performs the migration.</p></div>
+
+<h2>2. Prerequisites</h2><div class="card"><ul><li>DMS replication instance exists and is usable.</li><li>Source and target endpoints exist and their connection tests succeed.</li><li>A DMS replication task exists; a <b>Full load</b> task is recommended for this lab.</li><li>You can create/update IAM roles and Lambda functions.</li><li>You know the DMS task ARN.</li><li>For the simplest lab, create Lambda without VPC attachment. If Lambda is put in a private VPC subnet, it needs a network path to the AWS API it calls, such as NAT or an appropriate VPC endpoint.</li></ul></div>
+
+<h2>3. Get the DMS Task ARN</h2><div class="card"><div class="step"><span class="num">Step 3.1</span> Open <b>AWS Console → Database Migration Service → Database migration tasks</b>.</div><div class="step"><span class="num">Step 3.2</span> Select the task that Lambda will start.</div><div class="step"><span class="num">Step 3.3</span> Copy its ARN, for example:</div><pre><code>arn:aws:dms:us-east-1:123456789012:task:ABCDEFG123456789</code></pre></div>
+
+<h2>4. Create the Lambda IAM Execution Role</h2><div class="card"><p>Lambda assumes an execution role when the function runs. The trust policy must allow the Lambda service principal. Attach the AWS managed <code>AWSLambdaBasicExecutionRole</code> policy for CloudWatch logging and a custom DMS policy for the API calls.</p><h3>4.1 Trust Policy</h3><pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "lambda.amazonaws.com"},
+    "Action": "sts:AssumeRole"
+  }]
+}</code></pre><h3>4.2 DMS Permissions</h3><pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "DMSControl",
+    "Effect": "Allow",
+    "Action": [
+      "dms:StartReplicationTask",
+      "dms:DescribeReplicationTasks"
+    ],
+    "Resource": "*"
+  }]
+}</code></pre><div class="note good"><b>Production:</b> use least privilege and scope resources where the action supports resource-level permissions. IAM Access Analyzer can help refine the policy based on actual access activity.</div><h3>4.3 Console Steps</h3><ol><li>IAM → Roles → Create role.</li><li>Trusted entity: AWS service → Lambda.</li><li>Attach <code>AWSLambdaBasicExecutionRole</code>.</li><li>Create role, e.g. <code>DMSStartTaskLambdaRole</code>.</li><li>Add the inline DMS policy above.</li></ol></div>
+
+<h2>5. Create and Configure Lambda</h2><div class="card"><div class="step"><span class="num">Step 5.1</span> Lambda → Functions → Create function → Author from scratch.</div><div class="step"><span class="num">Step 5.2</span> Name: <code>StartDMSReplicationTask</code>.</div><div class="step"><span class="num">Step 5.3</span> Runtime: choose a currently supported Python runtime; Python 3.14 is currently supported by Lambda.</div><div class="step"><span class="num">Step 5.4</span> Select <b>Use an existing role</b> and choose <code>DMSStartTaskLambdaRole</code>.</div><div class="step"><span class="num">Step 5.5</span> Create the function.</div><h3>Environment Variable</h3><div class="grid"><div><b>Name</b><pre><code>DMS_TASK_ARN</code></pre></div><div><b>Value</b><pre><code>arn:aws:dms:us-east-1:123456789012:task:ABCDEFG123456789</code></pre></div></div><ol><li>Configuration → Environment variables → Edit.</li><li>Add <code>DMS_TASK_ARN</code>.</li><li>Paste the actual task ARN.</li><li>Save.</li></ol></div>
+
+<h2>6. Lambda Function Code</h2><div class="card"><p>This version checks the DMS task status first, avoiding a duplicate start when the task is already running or starting.</p><pre><code>import boto3
+import os
+
+dms = boto3.client("dms")
+
+
+def lambda_handler(event, context):
+    task_arn = os.environ["DMS_TASK_ARN"]
+
+    print(f"DMS Task ARN: {task_arn}")
+    print(f"Event: {event}")
+
+    response = dms.describe_replication_tasks(
+        Filters=[{
+            "Name": "replication-task-arn",
+            "Values": [task_arn]
+        }]
+    )
+
+    tasks = response.get("ReplicationTasks", [])
+    if not tasks:
+        raise Exception(f"DMS replication task not found: {task_arn}")
+
+    task = tasks[0]
+    status = task["Status"]
+    print(f"Current DMS task status: {status}")
+
+    if status in ["running", "starting"]:
+        return {
+            "statusCode": 200,
+            "message": "DMS task is already running or starting",
+            "taskArn": task_arn,
+            "status": status
+        }
+
+    if status in ["stopped", "failed"]:
+        result = dms.start_replication_task(
+            ReplicationTaskArn=task_arn,
+            StartReplicationTaskType="start-replication"
+        )
+
+        new_status = result["ReplicationTask"]["Status"]
+        print(f"DMS task start response status: {new_status}")
+
+        return {
+            "statusCode": 200,
+            "message": "DMS task start requested",
+            "taskArn": task_arn,
+            "status": new_status
+        }
+
+    return {
+        "statusCode": 200,
+        "message": f"DMS task is in state '{status}'. No start attempted.",
+        "taskArn": task_arn,
+        "status": status
+    }</code></pre><div class="note info"><b>Important:</b> a successful Lambda response means that DMS accepted the start request. It does not mean the migration has completed. Monitor the DMS task separately.</div></div>
+
+<h2>7. Start Type: Which Value Should We Use?</h2><div class="card"><table><tr><th>Value</th><th>Purpose</th><th>Recommended lab use</th></tr><tr><td><code>start-replication</code></td><td>Start a task. It is the required first-start action for full-load, full-load-and-CDC, or CDC tasks.</td><td><b>First run</b></td></tr><tr><td><code>resume-processing</code></td><td>Resume a previously executed task where applicable.</td><td>Restart/resume scenarios</td></tr><tr><td><code>reload-target</code></td><td>Reload target tables for applicable previously executed tasks.</td><td>Explicit target reload scenario</td></tr></table></div>
+
+<h2>8. Test Lambda</h2><div class="card"><p>Create a Lambda test event:</p><pre><code>{
+  "source": "manual-test",
+  "action": "start-dms-task"
+}</code></pre><ol><li>Open the function → Test.</li><li>Create test event named <code>StartDMSTaskTest</code>.</li><li>Save and invoke.</li><li>Review the execution result and logs.</li></ol></div>
+
+<h2>9. Execution Sequence</h2><div class="card"><svg viewBox="0 0 1050 480" width="100%" role="img" aria-label="Execution sequence"><defs><marker id="b" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#475569"/></marker></defs><rect x="25" y="20" width="1000" height="430" rx="18" fill="#fff" stroke="#cbd5e1"/><text x="130" y="55" text-anchor="middle" font-weight="700">Trigger</text><text x="390" y="55" text-anchor="middle" font-weight="700">Lambda</text><text x="675" y="55" text-anchor="middle" font-weight="700">AWS DMS</text><text x="900" y="55" text-anchor="middle" font-weight="700">Logs</text><line x1="130" y1="70" x2="130" y2="410" stroke="#94a3b8" stroke-width="2"/><line x1="390" y1="70" x2="390" y2="410" stroke="#94a3b8" stroke-width="2"/><line x1="675" y1="70" x2="675" y2="410" stroke="#94a3b8" stroke-width="2"/><line x1="900" y1="70" x2="900" y2="410" stroke="#94a3b8" stroke-width="2"/><text x="390" y="105" text-anchor="middle" font-size="13">Read DMS_TASK_ARN</text><line x1="140" y1="130" x2="380" y2="130" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="520" y="160" text-anchor="middle" font-size="13">DescribeReplicationTasks</text><line x1="400" y1="175" x2="665" y2="175" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="675" y="215" text-anchor="middle" font-size="13">Return status</text><line x1="665" y1="230" x2="400" y2="230" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="390" y="270" text-anchor="middle" font-size="13">If stopped/failed:</text><text x="390" y="292" text-anchor="middle" font-size="13">StartReplicationTask</text><line x1="400" y1="310" x2="665" y2="310" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="675" y="350" text-anchor="middle" font-size="13">starting → running</text><line x1="685" y1="365" x2="890" y2="365" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="900" y="395" text-anchor="middle" font-size="13">Lambda execution logs</text></svg></div>
+
+<h2>10. Verify DMS</h2><div class="card"><p>Open DMS → Database migration tasks and verify status, full-load progress, tables loaded, tables with errors, and table statistics.</p><pre><code>aws dms describe-replication-tasks \
+  --filters "Name=replication-task-arn,Values=YOUR_TASK_ARN"</code></pre><p>Equivalent CLI start:</p><pre><code>aws dms start-replication-task \
+  --replication-task-arn YOUR_TASK_ARN \
+  --start-replication-task-type start-replication</code></pre></div>
+
+<h2>11. CloudWatch Monitoring</h2><div class="card"><p>Open Lambda → Monitor → View CloudWatch logs. Expected messages include:</p><pre><code>DMS Task ARN: arn:aws:dms:...
+Current DMS task status: stopped
+DMS task start response status: starting</code></pre><p>The <code>AWSLambdaBasicExecutionRole</code> policy provides basic Lambda logging permissions.</p></div>
+
+<h2>12. Troubleshooting</h2><div class="card"><table><tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr><tr><td>AccessDenied</td><td>Lambda role lacks DMS permissions.</td><td>Check <code>dms:StartReplicationTask</code> and <code>dms:DescribeReplicationTasks</code>.</td></tr><tr><td>Task not found</td><td>Wrong ARN, region, or account.</td><td>Copy ARN from DMS and verify Lambda region.</td></tr><tr><td>Invalid resource state</td><td>Task already running/starting or otherwise not startable.</td><td>Check status before starting.</td></tr><tr><td>Network timeout</td><td>Lambda is in a private VPC without API connectivity.</td><td>For this control-plane lab, remove VPC attachment or configure appropriate NAT/VPC endpoint connectivity.</td></tr><tr><td>Task starts but migration fails</td><td>DMS endpoint, network, credentials, mappings, or source/target issue.</td><td>Review DMS endpoint tests, task logs and table statistics.</td></tr></table></div>
+
+<h2>13. Optional: S3 Upload → Lambda → DMS</h2><div class="card"><svg viewBox="0 0 1050 280" width="100%"><defs><marker id="c" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#334155"/></marker></defs><rect x="45" y="80" width="180" height="105" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="135" y="118" text-anchor="middle" font-size="18" font-weight="700">Amazon S3</text><text x="135" y="145" text-anchor="middle" font-size="13">CSV / metadata</text><text x="135" y="164" text-anchor="middle" font-size="13">uploaded</text><rect x="330" y="55" width="230" height="155" rx="14" fill="#7c3aed"/><text x="445" y="98" text-anchor="middle" fill="white" font-size="19" font-weight="700">Lambda</text><text x="445" y="127" text-anchor="middle" fill="white" font-size="13">Validate event</text><text x="445" y="149" text-anchor="middle" fill="white" font-size="13">Read metadata</text><text x="445" y="171" text-anchor="middle" fill="white" font-size="13">Start DMS task</text><rect x="665" y="80" width="180" height="105" rx="14" fill="#2563eb"/><text x="755" y="118" text-anchor="middle" fill="white" font-size="18" font-weight="700">AWS DMS</text><text x="755" y="145" text-anchor="middle" fill="white" font-size="13">Replication task</text><text x="755" y="164" text-anchor="middle" fill="white" font-size="13">Source → Target</text><rect x="925" y="80" width="80" height="105" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="965" y="125" text-anchor="middle" font-size="15" font-weight="700">DB</text><text x="965" y="148" text-anchor="middle" font-size="12">Target</text><line x1="225" y1="132" x2="330" y2="132" stroke="#334155" stroke-width="3" marker-end="url(#c)"/><line x1="560" y1="132" x2="665" y2="132" stroke="#334155" stroke-width="3" marker-end="url(#c)"/><line x1="845" y1="132" x2="925" y2="132" stroke="#334155" stroke-width="3" marker-end="url(#c)"/><text x="278" y="115" text-anchor="middle" font-size="12">ObjectCreated</text><text x="612" y="115" text-anchor="middle" font-size="12">DMS API</text></svg><p>After the manual flow works, S3/EventBridge can invoke Lambda automatically. Restrict service invocation permissions to the appropriate source resource/account.</p></div>
+
+<h2>14. Metadata-Driven Pattern</h2><div class="card"><p>For a data-engineering platform, keep task details in metadata instead of creating one Lambda per migration.</p><table><tr><th>Field</th><th>Example</th></tr><tr><td>PipelineName</td><td>CustomerMigration</td></tr><tr><td>SourceSystem</td><td>PostgreSQL</td></tr><tr><td>TargetSystem</td><td>Amazon Aurora PostgreSQL</td></tr><tr><td>DMSTaskArn</td><td>arn:aws:dms:...:task:...</td></tr><tr><td>MigrationType</td><td>full-load</td></tr><tr><td>Enabled</td><td>true</td></tr></table><pre><code>Event
+  ↓
+Lambda
+  ↓
+Read pipeline metadata
+  ↓
+Find DMSTaskArn
+  ↓
+DescribeReplicationTasks
+  ↓
+Already running?
+  ├─ Yes → return status
+  └─ No  → StartReplicationTask
+               ↓
+             DMS Task
+               ↓
+        Monitor / Notify</code></pre></div>
+
+<h2>15. Production Enhancements</h2><div class="card"><ul><li>Use least-privilege IAM.</li><li>Keep the task ARN in configuration/metadata rather than code.</li><li>Use Secrets Manager for secrets; do not put database passwords in Lambda code.</li><li>Add structured logs and correlation IDs.</li><li>Publish success/failure notifications using SNS or EventBridge.</li><li>Make the trigger idempotent so duplicate events do not start an already-running task.</li><li>Use Step Functions when the workflow requires wait/retry/branch/post-migration validation.</li><li>Create CloudWatch alarms for Lambda errors and DMS task failures.</li></ul></div>
+
+<h2>16. Lab Checklist</h2><div class="card"><ol><li>☐ DMS replication instance exists.</li><li>☐ Source endpoint test succeeds.</li><li>☐ Target endpoint test succeeds.</li><li>☐ DMS replication task exists.</li><li>☐ Lambda IAM role trusts Lambda.</li><li>☐ AWSLambdaBasicExecutionRole is attached.</li><li>☐ DMS control permissions are attached.</li><li>☐ Lambda function is created.</li><li>☐ DMS_TASK_ARN is configured.</li><li>☐ Test event is created.</li><li>☐ Lambda invocation succeeds.</li><li>☐ DMS task starts.</li><li>☐ DMS table statistics show progress.</li><li>☐ CloudWatch logs show execution details.</li></ol></div>
+
+<h2>17. AWS References</h2><div class="card"><ul><li><a href="https://docs.aws.amazon.com/boto3/latest/reference/services/dms/client/start_replication_task.html" target="_blank">Boto3 start_replication_task</a></li><li><a href="https://docs.aws.amazon.com/cli/latest/reference/dms/start-replication-task.html" target="_blank">AWS CLI start-replication-task</a></li><li><a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html" target="_blank">Lambda execution roles</a></li><li><a href="https://docs.aws.amazon.com/lambda/latest/dg/python-handler.html" target="_blank">Lambda Python handler / Boto3</a></li><li><a href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars-encryption.html" target="_blank">Lambda environment variables</a></li></ul></div>
+<div class="footer">AWS DMS Task Execution from Lambda — practical training/lab documentation. Verify current AWS service documentation before production deployment.</div>
+</main></body></html>

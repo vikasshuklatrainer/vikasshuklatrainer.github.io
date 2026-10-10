@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AWS DMS Task Execution from Lambda</title>
+<style>:root{--bg:#f4f6f9;--panel:#fff;--tx:#16202f;--mut:#5b6677;--bd:#dde3ec;--ac:#2563eb;--ac2:#eef4ff;--hd:#0f1b2d;--code:#0f1724;--codetx:#e6edf7;--hl:#fde68a;--i-bg:#eff6ff;--i-bd:#2563eb;--g-bg:#f0fdf4;--g-bd:#16a34a;--w-bg:#fff7ed;--w-bd:#f97316;--th:#eef2f7}
+:root[data-theme=dark]{--bg:#0b1220;--panel:#141d2e;--tx:#e5ebf5;--mut:#9aa7bb;--bd:#27344b;--ac:#6ea1ff;--ac2:#1b2a45;--hd:#0a101c;--code:#080d17;--hl:#6b5a14;--i-bg:#12233f;--g-bg:#10281b;--w-bg:#33210f;--th:#1c2740}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:76px}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.65 "Segoe UI",system-ui,Arial,sans-serif;overflow-x:hidden}
+.top{position:sticky;top:0;z-index:50;height:56px;display:flex;align-items:center;gap:14px;padding:0 16px;background:var(--hd);color:#fff;border-bottom:3px solid #ff9900}
+.brand{color:#fff;font-weight:800;text-decoration:none;letter-spacing:.3px}.brand span{color:#ff9900}
+.crumbs{font-size:13px;color:#b8c4d8;display:flex;gap:6px;white-space:nowrap;overflow:hidden}.crumbs b{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis}.crumbs i{font-style:normal;opacity:.6}
+.search{position:relative;margin-left:auto;width:min(340px,40vw)}.search input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid #3a4a66;background:#1a2740;color:#fff;font-size:14px}
+#results{position:absolute;right:0;top:44px;width:min(460px,92vw);max-height:70vh;overflow:auto;background:var(--panel);color:var(--tx);border:1px solid var(--bd);border-radius:10px;box-shadow:0 12px 30px #0005}
+#results a{display:block;padding:10px 14px;text-decoration:none;color:inherit;border-bottom:1px solid var(--bd)}#results a:hover,#results a:focus{background:var(--ac2)}#results small{color:var(--mut);display:block}#results .none{padding:14px;color:var(--mut)}
+mark{background:var(--hl);color:inherit;border-radius:3px;padding:0 1px}
+.icon{background:#1a2740;color:#fff;border:1px solid #3a4a66;border-radius:8px;width:38px;height:36px;font-size:17px;cursor:pointer}.menu{display:none}
+.side{position:fixed;top:56px;left:0;bottom:0;width:290px;overflow:auto;background:var(--panel);border-right:1px solid var(--bd);padding:18px 12px 40px;z-index:40}
+.side-t{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);padding:0 10px 8px}.side ul{list-style:none;margin:0;padding:0}.side ul ul{margin-left:14px;border-left:1px solid var(--bd)}
+.side a{display:block;padding:6px 10px;border-radius:6px;color:var(--tx);text-decoration:none;font-size:14px;line-height:1.35}.side a.sub{font-size:13px;color:var(--mut)}.side a:hover{background:var(--ac2)}
+.side a.active{background:var(--ac2);color:var(--ac);font-weight:700;box-shadow:inset 3px 0 var(--ac)}.side a.parent{color:var(--ac);font-weight:600}
+main{margin-left:290px;max-width:1010px;padding:28px 36px 60px}
+.hero{background:linear-gradient(135deg,#0f1b2d,#312e81);color:#fff;padding:30px 32px;border-radius:14px;border-bottom:4px solid #ff9900}.hero h1{margin:10px 0 8px;font-size:clamp(24px,4vw,34px);line-height:1.2}.hero p{margin:0;max-width:820px;color:#d6def0}
+.chips{display:flex;flex-wrap:wrap;gap:8px}.chips span{font-size:12px;font-weight:600;padding:3px 10px;border-radius:99px;background:#ffffff1f;border:1px solid #ffffff33}
+h2{display:flex;align-items:center;gap:12px;margin:46px 0 14px;padding-bottom:10px;border-bottom:2px solid var(--bd);font-size:24px;line-height:1.25}.h-num{display:inline-grid;place-items:center;min-width:34px;height:34px;border-radius:8px;background:var(--ac);color:#fff;font-size:15px}
+h3{margin:26px 0 8px;font-size:18px}h2,h3{scroll-margin-top:76px}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:22px;box-shadow:0 2px 10px #0000000d}.card>:first-child{margin-top:0}.card>:last-child{margin-bottom:0}
+.step{border-left:4px solid var(--ac);background:var(--ac2);padding:10px 16px;margin:10px 0;border-radius:0 8px 8px 0}.num{font-weight:700;color:var(--ac);margin-right:6px;white-space:nowrap}
+.note{padding:14px 17px;border-radius:9px;margin:16px 0;border-left:5px solid}.info{background:var(--i-bg);border-color:var(--i-bd)}.good{background:var(--g-bg);border-color:var(--g-bd)}.warn{background:var(--w-bg);border-color:var(--w-bd)}
+a{color:var(--ac)}li{margin:3px 0}p code,li code,td code,.step code,h3 code{background:var(--ac2);border:1px solid var(--bd);padding:1px 6px;border-radius:5px;font-size:.88em;overflow-wrap:anywhere}
+code{font-family:Consolas,"SF Mono",Menlo,monospace}
+.codeblock{margin:12px 0;border-radius:10px;overflow:hidden;background:var(--code);border:1px solid #1f2a3f}.cb-head{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;background:#18233a;color:#9fb0cc;font-size:12px}.cb-lang{text-transform:uppercase;letter-spacing:.8px;font-weight:700}
+.copy{background:#26344f;color:#dbe6fa;border:1px solid #3a4b6b;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer}.copy:hover{background:#31436a}
+pre{margin:0;padding:16px;overflow:auto;color:var(--codetx);font-size:13px;line-height:1.55;max-width:100%}pre code{background:none;border:0;padding:0}
+.k{color:#7dd3fc}.s{color:#a7f3a0}.n{color:#fbbf77}.b{color:#f9a8d4}.c{color:#8b9bb5;font-style:italic}.kw{color:#c4a8ff}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}.grid>div{min-width:0}
+.tablewrap{overflow-x:auto;margin:12px 0;border:1px solid var(--bd);border-radius:10px}table{border-collapse:collapse;width:100%;min-width:560px;background:var(--panel)}th,td{border-bottom:1px solid var(--bd);padding:10px 12px;text-align:left;vertical-align:top}th{background:var(--th);position:sticky;top:0;font-size:14px}tr:last-child td{border-bottom:0}
+.svgwrap{overflow-x:auto;margin:6px 0 12px}.diagram{min-width:720px;height:auto;border-radius:12px}
+.footer{border-top:1px solid var(--bd);margin-top:40px;padding-top:16px;color:var(--mut);font-size:13px}
+#toTop{position:fixed;right:18px;bottom:18px;width:42px;height:42px;border-radius:50%;border:0;background:var(--ac);color:#fff;font-size:20px;cursor:pointer;box-shadow:0 4px 14px #0004;z-index:45}
+.scrim{display:none}
+@media(max-width:960px){.menu{display:block}.crumbs{display:none}.side{transform:translateX(-100%);transition:transform .2s;width:290px;max-width:85vw;box-shadow:6px 0 24px #0005}body.nav-open .side{transform:none}body.nav-open .scrim{display:block;position:fixed;inset:56px 0 0;background:#0007;z-index:35}main{margin-left:0;padding:18px 14px 60px}.search{width:auto;flex:1}.card{padding:16px}h2{font-size:20px}}
+</style></head><body>
+<header class="top"><button class="icon menu" id="menuBtn" aria-label="Open navigation" aria-expanded="false">☰</button>
+<a class="brand" href="#top">DMS<span>Lab</span></a>
+<nav class="crumbs" aria-label="Breadcrumb"><span>AWS</span><i>›</i><span>AWS DMS</span><i>›</i><span>AWS Lambda</span><i>›</i><b>Start a task from Lambda</b></nav>
+<div class="search"><input id="q" type="search" placeholder="Search this lab ( / )" aria-label="Search" autocomplete="off"><div id="results" role="listbox" hidden></div></div>
+<button class="icon" id="themeBtn" aria-label="Toggle dark mode">◐</button></header>
+<div class="scrim" id="scrim"></div>
+<aside class="side" id="side" aria-label="Lab contents"><div class="side-t">Lab contents</div><ul><li><a href="#s1">1. Architecture</a></li><li><a href="#s2">2. Prerequisites</a></li><li><a href="#s3">3. Get the DMS Task ARN</a></li><li><a href="#s4">4. Create the Lambda IAM Execution Role</a><ul><li><a class="sub" href="#s4-1" data-parent="s4">4.1 Trust Policy</a></li><li><a class="sub" href="#s4-2" data-parent="s4">4.2 DMS Permissions</a></li><li><a class="sub" href="#s4-3" data-parent="s4">4.3 Console Steps</a></li></ul></li><li><a href="#s5">5. Create and Configure Lambda</a><ul><li><a class="sub" href="#s5-env" data-parent="s5">Environment Variable</a></li></ul></li><li><a href="#s6">6. Lambda Function Code</a></li><li><a href="#s7">7. Start Type: Which Value Should We Use?</a></li><li><a href="#s8">8. Test Lambda</a></li><li><a href="#s9">9. Execution Sequence</a></li><li><a href="#s10">10. Verify DMS</a></li><li><a href="#s11">11. CloudWatch Monitoring</a></li><li><a href="#s12">12. Troubleshooting</a></li><li><a href="#s13">13. Optional: S3 Upload → Lambda → DMS</a></li><li><a href="#s14">14. Metadata-Driven Pattern</a></li><li><a href="#s15">15. Production Enhancements</a></li><li><a href="#s16">16. Lab Checklist</a></li><li><a href="#s17">17. AWS References</a></li></ul></aside>
+<main id="top"><section class="hero"><div class="chips"><span>AWS DMS</span><span>AWS Lambda</span><span>Python · Boto3</span><span>Lab guide</span></div><h1>Executing an AWS DMS Replication Task from AWS Lambda</h1><p>Step-by-step lab guide for starting an existing AWS Database Migration Service (AWS DMS) replication task from a Python Lambda function using Boto3. Includes architecture, IAM permissions, configuration, code, testing, monitoring, troubleshooting, and a metadata-driven extension.</p></section>
+<div class="note info"><b>Scope:</b> This lab assumes the DMS replication instance, source endpoint, target endpoint, and replication task already exist. Lambda controls the DMS task; it does not create those DMS resources.</div>
+<section class="doc"><h2 id="s1"><span class="h-num">1</span>Architecture</h2><div class="card">
+<div class="svgwrap"><svg class="diagram" viewBox="0 0 1100 410" width="100%" role="img" aria-label="Trigger to Lambda to DMS task architecture"><defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#334155"/></marker></defs><rect x="20" y="20" width="1060" height="370" rx="18" fill="#f8fafc" stroke="#cbd5e1"/><rect x="55" y="145" width="175" height="90" rx="14" fill="white" stroke="#64748b" stroke-width="2"/><text x="142" y="180" text-anchor="middle" font-size="18" font-weight="700">Trigger</text><text x="142" y="207" text-anchor="middle" font-size="13">Manual / S3 / EventBridge</text><rect x="300" y="95" width="240" height="190" rx="16" fill="#7c3aed"/><text x="420" y="140" text-anchor="middle" fill="white" font-size="21" font-weight="700">AWS Lambda</text><text x="420" y="171" text-anchor="middle" fill="white" font-size="13">Python + Boto3</text><text x="420" y="198" text-anchor="middle" fill="white" font-size="13">Read DMS_TASK_ARN</text><text x="420" y="221" text-anchor="middle" fill="white" font-size="13">Check task status</text><text x="420" y="244" text-anchor="middle" fill="white" font-size="13">StartReplicationTask()</text><rect x="615" y="95" width="235" height="190" rx="16" fill="#2563eb"/><text x="732" y="140" text-anchor="middle" fill="white" font-size="21" font-weight="700">AWS DMS</text><text x="732" y="171" text-anchor="middle" fill="white" font-size="13">Replication Task</text><text x="732" y="198" text-anchor="middle" fill="white" font-size="13">Full Load / CDC</text><text x="732" y="221" text-anchor="middle" fill="white" font-size="13">Source → Target</text><rect x="925" y="145" width="130" height="90" rx="14" fill="white" stroke="#64748b" stroke-width="2"/><text x="990" y="180" text-anchor="middle" font-size="18" font-weight="700">Target DB</text><text x="990" y="207" text-anchor="middle" font-size="13">Migrated data</text><line x1="230" y1="190" x2="300" y2="190" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><line x1="540" y1="190" x2="615" y2="190" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><line x1="850" y1="190" x2="925" y2="190" stroke="#334155" stroke-width="3" marker-end="url(#a)"/><rect x="330" y="325" width="180" height="42" rx="9" fill="#ecfdf5" stroke="#86efac"/><text x="420" y="351" text-anchor="middle" font-size="13" font-weight="700">Lambda IAM Role</text><line x1="420" y1="325" x2="420" y2="285" stroke="#475569" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#a)"/><rect x="610" y="325" width="245" height="42" rx="9" fill="#eff6ff" stroke="#93c5fd"/><text x="732" y="351" text-anchor="middle" font-size="13" font-weight="700">dms:StartReplicationTask</text><line x1="732" y1="325" x2="732" y2="285" stroke="#475569" stroke-width="2" stroke-dasharray="6,5" marker-end="url(#a)"/></svg></div>
+<p><b>Core idea:</b> Lambda calls the DMS control-plane API. Lambda does not perform the data movement itself; the DMS replication task performs the migration.</p></div>
+
+</section><section class="doc"><h2 id="s2"><span class="h-num">2</span>Prerequisites</h2><div class="card"><ul><li>DMS replication instance exists and is usable.</li><li>Source and target endpoints exist and their connection tests succeed.</li><li>A DMS replication task exists; a <b>Full load</b> task is recommended for this lab.</li><li>You can create/update IAM roles and Lambda functions.</li><li>You know the DMS task ARN.</li><li>For the simplest lab, create Lambda without VPC attachment. If Lambda is put in a private VPC subnet, it needs a network path to the AWS API it calls, such as NAT or an appropriate VPC endpoint.</li></ul></div>
+
+</section><section class="doc"><h2 id="s3"><span class="h-num">3</span>Get the DMS Task ARN</h2><div class="card"><div class="step"><span class="num">Step 3.1</span> Open <b>AWS Console → Database Migration Service → Database migration tasks</b>.</div><div class="step"><span class="num">Step 3.2</span> Select the task that Lambda will start.</div><div class="step"><span class="num">Step 3.3</span> Copy its ARN, for example:</div><div class="codeblock" data-lang="text"><div class="cb-head"><span class="cb-lang">text</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>arn:aws:dms:us-east-1:123456789012:task:ABCDEFG123456789</code></pre></div></div>
+
+</section><section class="doc"><h2 id="s4"><span class="h-num">4</span>Create the Lambda IAM Execution Role</h2><div class="card"><p>Lambda assumes an execution role when the function runs. The trust policy must allow the Lambda service principal. Attach the AWS managed <code>AWSLambdaBasicExecutionRole</code> policy for CloudWatch logging and a custom DMS policy for the API calls.</p><h3 id="s4-1">4.1 Trust Policy</h3><div class="codeblock" data-lang="json"><div class="cb-head"><span class="cb-lang">json</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "lambda.amazonaws.com"},
+    "Action": "sts:AssumeRole"
+  }]
+}</code></pre></div><h3 id="s4-2">4.2 DMS Permissions</h3><div class="codeblock" data-lang="json"><div class="cb-head"><span class="cb-lang">json</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "DMSControl",
+    "Effect": "Allow",
+    "Action": [
+      "dms:StartReplicationTask",
+      "dms:DescribeReplicationTasks"
+    ],
+    "Resource": "*"
+  }]
+}</code></pre></div><div class="note good"><b>Production:</b> use least privilege and scope resources where the action supports resource-level permissions. IAM Access Analyzer can help refine the policy based on actual access activity.</div><h3 id="s4-3">4.3 Console Steps</h3><ol><li>IAM → Roles → Create role.</li><li>Trusted entity: AWS service → Lambda.</li><li>Attach <code>AWSLambdaBasicExecutionRole</code>.</li><li>Create role, e.g. <code>DMSStartTaskLambdaRole</code>.</li><li>Add the inline DMS policy above.</li></ol></div>
+
+</section><section class="doc"><h2 id="s5"><span class="h-num">5</span>Create and Configure Lambda</h2><div class="card"><div class="step"><span class="num">Step 5.1</span> Lambda → Functions → Create function → Author from scratch.</div><div class="step"><span class="num">Step 5.2</span> Name: <code>StartDMSReplicationTask</code>.</div><div class="step"><span class="num">Step 5.3</span> Runtime: choose a currently supported Python runtime; Python 3.14 is currently supported by Lambda.</div><div class="step"><span class="num">Step 5.4</span> Select <b>Use an existing role</b> and choose <code>DMSStartTaskLambdaRole</code>.</div><div class="step"><span class="num">Step 5.5</span> Create the function.</div><h3 id="s5-env">Environment Variable</h3><div class="grid"><div><b>Name</b><div class="codeblock" data-lang="text"><div class="cb-head"><span class="cb-lang">text</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>DMS_TASK_ARN</code></pre></div></div><div><b>Value</b><div class="codeblock" data-lang="text"><div class="cb-head"><span class="cb-lang">text</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>arn:aws:dms:us-east-1:123456789012:task:ABCDEFG123456789</code></pre></div></div></div><ol><li>Configuration → Environment variables → Edit.</li><li>Add <code>DMS_TASK_ARN</code>.</li><li>Paste the actual task ARN.</li><li>Save.</li></ol></div>
+
+</section><section class="doc"><h2 id="s6"><span class="h-num">6</span>Lambda Function Code</h2><div class="card"><p>This version checks the DMS task status first, avoiding a duplicate start when the task is already running or starting.</p><div class="codeblock" data-lang="python"><div class="cb-head"><span class="cb-lang">python</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>import boto3
+import os
+
+dms = boto3.client("dms")
+
+
+def lambda_handler(event, context):
+    task_arn = os.environ["DMS_TASK_ARN"]
+
+    print(f"DMS Task ARN: {task_arn}")
+    print(f"Event: {event}")
+
+    response = dms.describe_replication_tasks(
+        Filters=[{
+            "Name": "replication-task-arn",
+            "Values": [task_arn]
+        }]
+    )
+
+    tasks = response.get("ReplicationTasks", [])
+    if not tasks:
+        raise Exception(f"DMS replication task not found: {task_arn}")
+
+    task = tasks[0]
+    status = task["Status"]
+    print(f"Current DMS task status: {status}")
+
+    if status in ["running", "starting"]:
+        return {
+            "statusCode": 200,
+            "message": "DMS task is already running or starting",
+            "taskArn": task_arn,
+            "status": status
+        }
+
+    if status in ["stopped", "failed"]:
+        result = dms.start_replication_task(
+            ReplicationTaskArn=task_arn,
+            StartReplicationTaskType="start-replication"
+        )
+
+        new_status = result["ReplicationTask"]["Status"]
+        print(f"DMS task start response status: {new_status}")
+
+        return {
+            "statusCode": 200,
+            "message": "DMS task start requested",
+            "taskArn": task_arn,
+            "status": new_status
+        }
+
+    return {
+        "statusCode": 200,
+        "message": f"DMS task is in state '{status}'. No start attempted.",
+        "taskArn": task_arn,
+        "status": status
+    }</code></pre></div><div class="note info"><b>Important:</b> a successful Lambda response means that DMS accepted the start request. It does not mean the migration has completed. Monitor the DMS task separately.</div></div>
+
+</section><section class="doc"><h2 id="s7"><span class="h-num">7</span>Start Type: Which Value Should We Use?</h2><div class="card"><div class="tablewrap"><table><tr><th>Value</th><th>Purpose</th><th>Recommended lab use</th></tr><tr><td><code>start-replication</code></td><td>Start a task. It is the required first-start action for full-load, full-load-and-CDC, or CDC tasks.</td><td><b>First run</b></td></tr><tr><td><code>resume-processing</code></td><td>Resume a previously executed task where applicable.</td><td>Restart/resume scenarios</td></tr><tr><td><code>reload-target</code></td><td>Reload target tables for applicable previously executed tasks.</td><td>Explicit target reload scenario</td></tr></table></div></div>
+
+</section><section class="doc"><h2 id="s8"><span class="h-num">8</span>Test Lambda</h2><div class="card"><p>Create a Lambda test event:</p><div class="codeblock" data-lang="json"><div class="cb-head"><span class="cb-lang">json</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>{
+  "source": "manual-test",
+  "action": "start-dms-task"
+}</code></pre></div><ol><li>Open the function → Test.</li><li>Create test event named <code>StartDMSTaskTest</code>.</li><li>Save and invoke.</li><li>Review the execution result and logs.</li></ol></div>
+
+</section><section class="doc"><h2 id="s9"><span class="h-num">9</span>Execution Sequence</h2><div class="card"><div class="svgwrap"><svg class="diagram" viewBox="0 0 1050 480" width="100%" role="img" aria-label="Execution sequence"><defs><marker id="b" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#475569"/></marker></defs><rect x="25" y="20" width="1000" height="430" rx="18" fill="#fff" stroke="#cbd5e1"/><text x="130" y="55" text-anchor="middle" font-weight="700">Trigger</text><text x="390" y="55" text-anchor="middle" font-weight="700">Lambda</text><text x="675" y="55" text-anchor="middle" font-weight="700">AWS DMS</text><text x="900" y="55" text-anchor="middle" font-weight="700">Logs</text><line x1="130" y1="70" x2="130" y2="410" stroke="#94a3b8" stroke-width="2"/><line x1="390" y1="70" x2="390" y2="410" stroke="#94a3b8" stroke-width="2"/><line x1="675" y1="70" x2="675" y2="410" stroke="#94a3b8" stroke-width="2"/><line x1="900" y1="70" x2="900" y2="410" stroke="#94a3b8" stroke-width="2"/><text x="390" y="105" text-anchor="middle" font-size="13">Read DMS_TASK_ARN</text><line x1="140" y1="130" x2="380" y2="130" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="520" y="160" text-anchor="middle" font-size="13">DescribeReplicationTasks</text><line x1="400" y1="175" x2="665" y2="175" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="675" y="215" text-anchor="middle" font-size="13">Return status</text><line x1="665" y1="230" x2="400" y2="230" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="390" y="270" text-anchor="middle" font-size="13">If stopped/failed:</text><text x="390" y="292" text-anchor="middle" font-size="13">StartReplicationTask</text><line x1="400" y1="310" x2="665" y2="310" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="675" y="350" text-anchor="middle" font-size="13">starting → running</text><line x1="685" y1="365" x2="890" y2="365" stroke="#475569" stroke-width="2" marker-end="url(#b)"/><text x="900" y="395" text-anchor="middle" font-size="13">Lambda execution logs</text></svg></div></div>
+
+</section><section class="doc"><h2 id="s10"><span class="h-num">10</span>Verify DMS</h2><div class="card"><p>Open DMS → Database migration tasks and verify status, full-load progress, tables loaded, tables with errors, and table statistics.</p><div class="codeblock" data-lang="bash"><div class="cb-head"><span class="cb-lang">bash</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>aws dms describe-replication-tasks \
+  --filters "Name=replication-task-arn,Values=YOUR_TASK_ARN"</code></pre></div><p>Equivalent CLI start:</p><div class="codeblock" data-lang="bash"><div class="cb-head"><span class="cb-lang">bash</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>aws dms start-replication-task \
+  --replication-task-arn YOUR_TASK_ARN \
+  --start-replication-task-type start-replication</code></pre></div></div>
+
+</section><section class="doc"><h2 id="s11"><span class="h-num">11</span>CloudWatch Monitoring</h2><div class="card"><p>Open Lambda → Monitor → View CloudWatch logs. Expected messages include:</p><div class="codeblock" data-lang="text"><div class="cb-head"><span class="cb-lang">text</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>DMS Task ARN: arn:aws:dms:...
+Current DMS task status: stopped
+DMS task start response status: starting</code></pre></div><p>The <code>AWSLambdaBasicExecutionRole</code> policy provides basic Lambda logging permissions.</p></div>
+
+</section><section class="doc"><h2 id="s12"><span class="h-num">12</span>Troubleshooting</h2><div class="card"><div class="tablewrap"><table><tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr><tr><td>AccessDenied</td><td>Lambda role lacks DMS permissions.</td><td>Check <code>dms:StartReplicationTask</code> and <code>dms:DescribeReplicationTasks</code>.</td></tr><tr><td>Task not found</td><td>Wrong ARN, region, or account.</td><td>Copy ARN from DMS and verify Lambda region.</td></tr><tr><td>Invalid resource state</td><td>Task already running/starting or otherwise not startable.</td><td>Check status before starting.</td></tr><tr><td>Network timeout</td><td>Lambda is in a private VPC without API connectivity.</td><td>For this control-plane lab, remove VPC attachment or configure appropriate NAT/VPC endpoint connectivity.</td></tr><tr><td>Task starts but migration fails</td><td>DMS endpoint, network, credentials, mappings, or source/target issue.</td><td>Review DMS endpoint tests, task logs and table statistics.</td></tr></table></div></div>
+
+</section><section class="doc"><h2 id="s13"><span class="h-num">13</span>Optional: S3 Upload → Lambda → DMS</h2><div class="card"><div class="svgwrap"><svg class="diagram" viewBox="0 0 1050 280" width="100%"><defs><marker id="c" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L10 3L0 6z" fill="#334155"/></marker></defs><rect x="45" y="80" width="180" height="105" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="135" y="118" text-anchor="middle" font-size="18" font-weight="700">Amazon S3</text><text x="135" y="145" text-anchor="middle" font-size="13">CSV / metadata</text><text x="135" y="164" text-anchor="middle" font-size="13">uploaded</text><rect x="330" y="55" width="230" height="155" rx="14" fill="#7c3aed"/><text x="445" y="98" text-anchor="middle" fill="white" font-size="19" font-weight="700">Lambda</text><text x="445" y="127" text-anchor="middle" fill="white" font-size="13">Validate event</text><text x="445" y="149" text-anchor="middle" fill="white" font-size="13">Read metadata</text><text x="445" y="171" text-anchor="middle" fill="white" font-size="13">Start DMS task</text><rect x="665" y="80" width="180" height="105" rx="14" fill="#2563eb"/><text x="755" y="118" text-anchor="middle" fill="white" font-size="18" font-weight="700">AWS DMS</text><text x="755" y="145" text-anchor="middle" fill="white" font-size="13">Replication task</text><text x="755" y="164" text-anchor="middle" fill="white" font-size="13">Source → Target</text><rect x="925" y="80" width="80" height="105" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="965" y="125" text-anchor="middle" font-size="15" font-weight="700">DB</text><text x="965" y="148" text-anchor="middle" font-size="12">Target</text><line x1="225" y1="132" x2="330" y2="132" stroke="#334155" stroke-width="3" marker-end="url(#c)"/><line x1="560" y1="132" x2="665" y2="132" stroke="#334155" stroke-width="3" marker-end="url(#c)"/><line x1="845" y1="132" x2="925" y2="132" stroke="#334155" stroke-width="3" marker-end="url(#c)"/><text x="278" y="115" text-anchor="middle" font-size="12">ObjectCreated</text><text x="612" y="115" text-anchor="middle" font-size="12">DMS API</text></svg></div><p>After the manual flow works, S3/EventBridge can invoke Lambda automatically. Restrict service invocation permissions to the appropriate source resource/account.</p></div>
+
+</section><section class="doc"><h2 id="s14"><span class="h-num">14</span>Metadata-Driven Pattern</h2><div class="card"><p>For a data-engineering platform, keep task details in metadata instead of creating one Lambda per migration.</p><div class="tablewrap"><table><tr><th>Field</th><th>Example</th></tr><tr><td>PipelineName</td><td>CustomerMigration</td></tr><tr><td>SourceSystem</td><td>PostgreSQL</td></tr><tr><td>TargetSystem</td><td>Amazon Aurora PostgreSQL</td></tr><tr><td>DMSTaskArn</td><td>arn:aws:dms:...:task:...</td></tr><tr><td>MigrationType</td><td>full-load</td></tr><tr><td>Enabled</td><td>true</td></tr></table></div><div class="codeblock" data-lang="text"><div class="cb-head"><span class="cb-lang">text</span><button type="button" class="copy" aria-label="Copy code">Copy</button></div><pre><code>Event
+  ↓
+Lambda
+  ↓
+Read pipeline metadata
+  ↓
+Find DMSTaskArn
+  ↓
+DescribeReplicationTasks
+  ↓
+Already running?
+  ├─ Yes → return status
+  └─ No  → StartReplicationTask
+               ↓
+             DMS Task
+               ↓
+        Monitor / Notify</code></pre></div></div>
+
+</section><section class="doc"><h2 id="s15"><span class="h-num">15</span>Production Enhancements</h2><div class="card"><ul><li>Use least-privilege IAM.</li><li>Keep the task ARN in configuration/metadata rather than code.</li><li>Use Secrets Manager for secrets; do not put database passwords in Lambda code.</li><li>Add structured logs and correlation IDs.</li><li>Publish success/failure notifications using SNS or EventBridge.</li><li>Make the trigger idempotent so duplicate events do not start an already-running task.</li><li>Use Step Functions when the workflow requires wait/retry/branch/post-migration validation.</li><li>Create CloudWatch alarms for Lambda errors and DMS task failures.</li></ul></div>
+
+</section><section class="doc"><h2 id="s16"><span class="h-num">16</span>Lab Checklist</h2><div class="card"><ol><li>☐ DMS replication instance exists.</li><li>☐ Source endpoint test succeeds.</li><li>☐ Target endpoint test succeeds.</li><li>☐ DMS replication task exists.</li><li>☐ Lambda IAM role trusts Lambda.</li><li>☐ AWSLambdaBasicExecutionRole is attached.</li><li>☐ DMS control permissions are attached.</li><li>☐ Lambda function is created.</li><li>☐ DMS_TASK_ARN is configured.</li><li>☐ Test event is created.</li><li>☐ Lambda invocation succeeds.</li><li>☐ DMS task starts.</li><li>☐ DMS table statistics show progress.</li><li>☐ CloudWatch logs show execution details.</li></ol></div>
+
+</section><section class="doc"><h2 id="s17"><span class="h-num">17</span>AWS References</h2><div class="card"><ul><li><a rel="noopener" href="https://docs.aws.amazon.com/boto3/latest/reference/services/dms/client/start_replication_task.html" target="_blank">Boto3 start_replication_task</a></li><li><a rel="noopener" href="https://docs.aws.amazon.com/cli/latest/reference/dms/start-replication-task.html" target="_blank">AWS CLI start-replication-task</a></li><li><a rel="noopener" href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html" target="_blank">Lambda execution roles</a></li><li><a rel="noopener" href="https://docs.aws.amazon.com/lambda/latest/dg/python-handler.html" target="_blank">Lambda Python handler / Boto3</a></li><li><a rel="noopener" href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars-encryption.html" target="_blank">Lambda environment variables</a></li></ul></div>
+
+</section>
+<div class="footer">AWS DMS Task Execution from Lambda — practical training/lab documentation. Verify current AWS service documentation before production deployment.</div></main>
+<button id="toTop" aria-label="Back to top" hidden>↑</button>
+<script>(()=>{const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],root=document.documentElement;
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+let saved=null;try{saved=localStorage.getItem('theme')}catch(e){}
+root.dataset.theme=saved||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+$('#themeBtn').onclick=()=>{const t=root.dataset.theme==='dark'?'light':'dark';root.dataset.theme=t;try{localStorage.setItem('theme',t)}catch(e){}};
+// syntax highlighting (display only; textContent is unchanged)
+function tok(t,re,cls){let o='',i=0,m;re.lastIndex=0;while(m=re.exec(t)){o+=esc(t.slice(i,m.index));const k=cls(m,t,re.lastIndex);o+=k?`<span class="${k}">${esc(m[0])}</span>`:esc(m[0]);i=m.index+m[0].length}return o+esc(t.slice(i))}
+const L={json:[/"(?:\\.|[^"\\])*"|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?/g,(m,t,e)=>m[0]=='"'?(/^\s*:/.test(t.slice(e))?'k':'s'):/^[tfn]/.test(m[0])?'b':'n'],
+python:[/#.*|f?"(?:\\.|[^"\\])*"|\b(?:import|def|return|if|not|in|raise)\b|\b\d+\b/g,m=>m[0]=='#'?'c':/^(f?")/.test(m[0])?'s':/^\d/.test(m[0])?'n':'kw'],
+bash:[/"[^"]*"|(?<=\s)--[\w-]+|^aws/gm,m=>m[0]=='"'?'s':'k']};
+$$('.codeblock').forEach(b=>{const c=b.querySelector('code'),l=L[b.dataset.lang],t=c.textContent;if(l)c.innerHTML=tok(t,l[0],l[1]);
+b.querySelector('.copy').onclick=async e=>{const btn=e.target;try{await navigator.clipboard.writeText(t)}catch(x){const r=document.createRange();r.selectNodeContents(c);const s=getSelection();s.removeAllRanges();s.addRange(r);document.execCommand('copy');s.removeAllRanges()}btn.textContent='Copied ✓';setTimeout(()=>btn.textContent='Copy',1500)}});
+// nav
+const links=$$('.side a'),heads=$$('main h2[id],main h3[id]'),body=document.body;
+const closeNav=()=>{body.classList.remove('nav-open');$('#menuBtn').setAttribute('aria-expanded','false')};
+$('#menuBtn').onclick=()=>{const o=body.classList.toggle('nav-open');$('#menuBtn').setAttribute('aria-expanded',o)};$('#scrim').onclick=closeNav;
+links.forEach(a=>a.addEventListener('click',closeNav));
+let cur='';function setActive(id){if(id===cur)return;cur=id;links.forEach(a=>{const on=a.getAttribute('href')==='#'+id;a.classList.toggle('active',on);a.classList.toggle('parent',a.getAttribute('href')==='#'+(document.getElementById(id).tagName=='H3'?id.split('-')[0]:''));if(on)a.scrollIntoView({block:'nearest'})});
+try{history.replaceState(null,'','#'+id)}catch(e){}}
+const io=new IntersectionObserver(es=>es.forEach(e=>{const i=heads.indexOf(e.target);if(e.isIntersecting)setActive(e.target.id);else if(e.boundingClientRect.top>0&&i>0)setActive(heads[i-1].id)}),{rootMargin:'-70px 0px -75% 0px'});
+heads.forEach(h=>io.observe(h));
+// search
+const idx=$$('main section.doc').map(s=>({id:s.querySelector('h2').id,t:s.querySelector('h2').textContent,x:s.textContent.replace(/\s+/g,' ')}));
+const q=$('#q'),R=$('#results');
+function run(){const v=q.value.trim().toLowerCase();if(v.length<2){R.hidden=true;return}
+const hits=idx.filter(d=>d.x.toLowerCase().includes(v));const re=new RegExp(v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');
+R.innerHTML=hits.length?hits.map(d=>{const p=d.x.toLowerCase().indexOf(v),sn=d.x.slice(Math.max(0,p-45),p+75);return `<a href="#${d.id}"><b>${esc(d.t)}</b><small>…${esc(sn).replace(re,m=>'<mark>'+m+'</mark>')}…</small></a>`}).join(''):`<div class="none">No results for “${esc(q.value)}”.</div>`;R.hidden=false}
+q.addEventListener('input',run);q.addEventListener('focus',run);
+R.addEventListener('click',e=>{if(e.target.closest('a')){R.hidden=true;closeNav()}});
+document.addEventListener('click',e=>{if(!e.target.closest('.search'))R.hidden=true});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement!==q&&!/input|textarea/i.test(document.activeElement.tagName)){e.preventDefault();q.focus()}if(e.key==='Escape'){R.hidden=true;q.blur();closeNav()}});
+// back to top
+const tt=$('#toTop');addEventListener('scroll',()=>{tt.hidden=scrollY<600},{passive:true});tt.onclick=()=>scrollTo({top:0,behavior:'smooth'});
+})();
+</script></body></html>
